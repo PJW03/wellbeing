@@ -92,7 +92,11 @@ const LoginScreen: React.FC<LoginScreenProps & any> = ({ onLoginSuccess, navigat
           <View style={styles.linkSection}>
             <View style={styles.leftLinks}>
               <TouchableOpacity onPress={() => navigation?.navigate('FindID')}>
-                <Text style={styles.linkText}>아이디/비밀번호 찾기</Text>
+                <Text style={styles.linkText}>아이디 찾기</Text>
+              </TouchableOpacity>
+              <Text style={styles.linkDivider}> / </Text>
+              <TouchableOpacity onPress={() => navigation?.navigate('FindPassword')}>
+                <Text style={styles.linkText}>비밀번호 찾기</Text>
               </TouchableOpacity>
             </View>
             <TouchableOpacity onPress={() => navigation?.navigate('Signup')}>

@@ -68,7 +68,7 @@ export const styles = StyleSheet.create({
   },
   inputSection: {
     alignSelf: 'stretch',
-    marginBottom: 25,
+    marginBottom: 12,
   },
   input: {
     alignSelf: 'stretch',
@@ -98,6 +98,11 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666666',
     fontWeight: '400',
+  },
+  linkDivider: {
+    fontSize: 20,
+    color: '#CCCCCC',
+    marginHorizontal: 6,
   },
   buttonSection: {
     alignSelf: 'stretch',
