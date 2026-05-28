@@ -16,11 +16,27 @@ import Header from '../components/Header';
 
 const FindPasswordScreen: React.FC<any> = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const [id, setId] = useState('');
+  const [userId, setUserId] = useState('');
   const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [isCodeSent, setIsCodeSent] = useState(false);
+  const [isCodeVerified, setIsCodeVerified] = useState(false);
 
-  const handleFind = () => {
-    console.log('비밀번호 찾기', { id, email });
+  const handleSendCode = () => {
+    console.log('인증번호 전송', { userId, email });
+    // API 호출 시뮬레이션
+    setIsCodeSent(true);
+  };
+
+  const handleVerifyCode = () => {
+    console.log('인증번호 확인', { userId, email, code });
+    // API 호출 시뮬레이션
+    setIsCodeVerified(true);
+  };
+
+  const handleResetPassword = () => {
+    console.log('비밀번호 재설정', { userId, email, code, newPassword });
     navigation.goBack();
   };
 
@@ -49,13 +65,32 @@ const FindPasswordScreen: React.FC<any> = ({ navigation }) => {
             </View>
 
             <View style={styles.inputSection}>
-              <TextInput style={styles.input} placeholder="아이디" placeholderTextColor="#B8B8B8" value={id} onChangeText={setId} />
-              <TextInput style={styles.input} placeholder="이메일" placeholderTextColor="#B8B8B8" value={email} onChangeText={setEmail} />
+              <TextInput style={styles.input} placeholder="아이디" placeholderTextColor="#B8B8B8" value={userId} onChangeText={setUserId} />
+              
+              <View style={styles.rowContainer}>
+                <TextInput style={styles.rowInput} placeholder="이메일" placeholderTextColor="#B8B8B8" value={email} onChangeText={setEmail} />
+                <TouchableOpacity style={styles.smallButton} onPress={handleSendCode} activeOpacity={0.8}>
+                  <Text style={styles.smallButtonText}>전송</Text>
+                </TouchableOpacity>
+              </View>
+
+              {isCodeSent && (
+                <View style={styles.rowContainer}>
+                  <TextInput style={styles.rowInput} placeholder="인증번호 6자리" placeholderTextColor="#B8B8B8" value={code} onChangeText={setCode} maxLength={6} />
+                  <TouchableOpacity style={styles.smallButton} onPress={handleVerifyCode} activeOpacity={0.8}>
+                    <Text style={styles.smallButtonText}>확인</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {isCodeVerified && (
+                <TextInput style={styles.input} placeholder="새 비밀번호" placeholderTextColor="#B8B8B8" value={newPassword} onChangeText={setNewPassword} secureTextEntry />
+              )}
             </View>
 
             <View style={styles.buttonSection}>
-              <TouchableOpacity style={styles.loginButton} onPress={handleFind} activeOpacity={0.8}>
-                <Text style={styles.loginButtonText}>비밀번호 찾기</Text>
+              <TouchableOpacity style={styles.loginButton} onPress={isCodeVerified ? handleResetPassword : () => {}} activeOpacity={0.8} disabled={!isCodeVerified}>
+                <Text style={styles.loginButtonText}>{isCodeVerified ? '비밀번호 재설정' : '인증 필요'}</Text>
               </TouchableOpacity>
             </View>
           </View>
