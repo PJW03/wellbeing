@@ -7,10 +7,17 @@ import {
   TouchableOpacity,
   StatusBar,
   SafeAreaView,
+  Image,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import ReportIcon from '../icon/report.svg';
 import HomeIcon from '../icon/home.svg';
+import EditIcon from '../icon/edit.svg';
+import NoticeIcon from '../icon/noticeicon.svg';
+import ArrowIcon from '../icon/rightarrow.svg';
+import ExitIcon from '../icon/exit.svg';
+import ProfileImage from '../image/image.png';
 
 // ─── 색상 상수 ─────────────────────────────────────────────
 const TEAL       = '#4ECBA0';
@@ -70,7 +77,9 @@ const gs = StyleSheet.create({
 
 // ─── 메인 ──────────────────────────────────────────────────
 const HomeScreen: React.FC = () => {
+  const navigation = useNavigation<any>();
   const [activeTab, setActiveTab] = useState<'report' | 'home'>('home');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const sensors: SensorData[] = [
     { label: '온도', key: 'temp',     value: 72, display: '24°C'    },
@@ -100,15 +109,56 @@ const HomeScreen: React.FC = () => {
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       {/* ── 헤더 ── */}
       <View style={s.header}>
-        <TouchableOpacity activeOpacity={0.7}>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => setIsSidebarOpen(true)}>
           <View style={s.menuLine} />
           <View style={s.menuLine} />
           <View style={s.menuLine} />
         </TouchableOpacity>
-        <TouchableOpacity style={s.settingBtn} activeOpacity={0.8}>
-          <Text style={s.settingIcon}>⚙︎</Text>
+        <TouchableOpacity
+          style={s.settingBtn}
+          activeOpacity={0.8}
+          onPress={() => navigation.navigate('Notifications')}
+        >
+          <NoticeIcon width={20} height={20} />
         </TouchableOpacity>
       </View>
+
+      {isSidebarOpen && (
+        <View style={s.sidebarOverlay}>
+          <TouchableOpacity style={s.sidebarBackdrop} activeOpacity={1} onPress={() => setIsSidebarOpen(false)} />
+          <View style={s.sidebarPanel}>
+            <View style={s.sidebarProfile}>
+              <View style={s.avatarRing}>
+                <Image source={ProfileImage} style={s.avatarImage} />
+              </View>
+              <View style={s.profileNameRow}>
+                <Text style={s.profileName}>초코</Text>
+                <EditIcon width={16} height={16} style={s.profileEditIcon} />
+              </View>
+            </View>
+            <View style={s.sidebarMenu}>
+              <TouchableOpacity style={s.sidebarMenuItem} activeOpacity={0.8}>
+                <Text style={s.sidebarMenuText}>계정 설정</Text>
+                <ArrowIcon width={14} height={14} color={TEXT_S} />
+              </TouchableOpacity>
+              <TouchableOpacity style={s.sidebarMenuItem} activeOpacity={0.8}>
+                <Text style={s.sidebarMenuText}>알림 설정</Text>
+                <ArrowIcon width={14} height={14} color={TEXT_S} />
+              </TouchableOpacity>
+              <TouchableOpacity style={s.sidebarMenuItem} activeOpacity={0.8}>
+                <Text style={s.sidebarMenuText}>도움말</Text>
+                <ArrowIcon width={14} height={14} color={TEXT_S} />
+              </TouchableOpacity>
+            </View>
+            <View style={s.sidebarFooter}>
+              <TouchableOpacity style={s.logoutButton} activeOpacity={0.85}>
+                <ExitIcon width={16} height={16} color="#F0808B" />
+                <Text style={s.logoutText}>Log Out</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
 
       
 
@@ -199,9 +249,9 @@ const s = StyleSheet.create({
     marginBottom: 5,
   },
   settingBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: TEAL,
     justifyContent: 'center',
     alignItems: 'center',
@@ -210,10 +260,6 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.35,
     shadowRadius: 6,
-  },
-  settingIcon: {
-    fontSize: 22,
-    color: WHITE,
   },
 
   // 바디: 3카드가 균등하게 공간 차지
@@ -420,6 +466,102 @@ const s = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 32,
     letterSpacing: 0.6,
+  },
+  sidebarOverlay: {
+    ...StyleSheet.absoluteFill,
+    flexDirection: 'row-reverse',
+    zIndex: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+  },
+  sidebarBackdrop: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  sidebarPanel: {
+    width: '60%',
+    height: '90%',
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    paddingTop: STATUS_BAR_HEIGHT + 24,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    borderRadius: 24,
+    marginTop: STATUS_BAR_HEIGHT + 60,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: -4, height: 0 },
+    elevation: 8,
+  },
+  sidebarProfile: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  sidebarMenu: {
+    marginTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E8E8E8',
+  },
+  sidebarMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8E8E8',
+  },
+  sidebarMenuText: {
+    fontSize: 15,
+    color: TEXT,
+    fontWeight: '600',
+    textAlign: 'center',
+    width: 96,
+  },
+  sidebarFooter: {
+    marginTop: 'auto',
+    alignItems: 'center',
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+    backgroundColor: '#F0F1F1',
+    borderRadius: 22,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    minWidth: 160,
+  },
+  logoutText: {
+    fontSize: 14,
+    color: '#F0808B',
+    fontWeight: '700',
+  },
+  avatarRing: {
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: '#EEF5F3',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  profileNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  profileName: {
+    fontSize: 18,
+    color: TEXT,
+    fontWeight: '700',
+  },
+  profileEditIcon: {
+    marginTop: 2,
   },
 });
 

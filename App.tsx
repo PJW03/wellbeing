@@ -14,10 +14,12 @@ import SignupScreen from './src/screens/SignupScreen';
 import FindIdScreen from './src/screens/FindIdScreen';
 import FindPasswordScreen from './src/screens/FindPasswordScreen';
 import HomeScreen from './src/screens/HomeScreen';
+import NotificationsScreen from './src/screens/NotificationsScreen';
 
 export type RootStackParamList = {
   Login: undefined;
   Home: undefined;
+  Notifications: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -51,7 +53,10 @@ function App(): React.JSX.Element {
               <Stack.Screen name="FindPassword" component={FindPasswordScreen} />
             </>
           ) : (
-            <Stack.Screen name="Home" component={HomeScreen} />
+            <>
+              <Stack.Screen name="Home" component={HomeScreen} />
+              <Stack.Screen name="Notifications" component={NotificationsScreen} />
+            </>
           )}
         </Stack.Navigator>
       </NavigationContainer>
