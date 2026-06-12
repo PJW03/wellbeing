@@ -8,11 +8,14 @@ import {
   StatusBar,
   KeyboardAvoidingView,
   Platform,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { styles } from '../styles/loginScreenStyles';
 import Header from '../components/Header';
+import { signup } from '../api/auth';
 
 const SignupScreen: React.FC<any> = ({ navigation }) => {
   const insets = useSafeAreaInsets();
@@ -21,10 +24,25 @@ const SignupScreen: React.FC<any> = ({ navigation }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSignup = () => {
-    console.log('회원가입', { id, nickname, email });
-    navigation.goBack();
+  const handleSignup = async () => {
+    if (!id.trim() || !nickname.trim() || !email.trim() || !password) return;
+    if (password !== passwordConfirm) {
+      Alert.alert('오류', '비밀번호가 일치하지 않습니다.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await signup({ userId: id.trim(), userPw: password, userEmail: email.trim(), nickname: nickname.trim() });
+      Alert.alert('가입 완료', '회원가입이 완료되었습니다.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    } catch (e: any) {
+      Alert.alert('회원가입 실패', e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -59,8 +77,10 @@ const SignupScreen: React.FC<any> = ({ navigation }) => {
             </View>
 
             <View style={styles.buttonSection}>
-              <TouchableOpacity style={styles.loginButton} onPress={handleSignup} activeOpacity={0.8}>
-                <Text style={styles.loginButtonText}>회원가입</Text>
+              <TouchableOpacity style={styles.loginButton} onPress={handleSignup} activeOpacity={0.8} disabled={loading}>
+                {loading
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={styles.loginButtonText}>회원가입</Text>}
               </TouchableOpacity>
             </View>
           </View>

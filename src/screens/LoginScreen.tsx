@@ -8,10 +8,13 @@ import {
   StatusBar,
   KeyboardAvoidingView,
   Platform,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { styles } from '../styles/loginScreenStyles';
+import { login } from '../api/auth';
 
 interface LoginScreenProps {
   onLoginSuccess?: () => void;
@@ -21,12 +24,19 @@ const LoginScreen: React.FC<LoginScreenProps & any> = ({ onLoginSuccess, navigat
   const insets = useSafeAreaInsets();
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = () => {
-    if (userId.trim() && password.trim()) {
-      // 로그인 처리 로직
-      console.log('로그인:', { userId, password });
+  const handleLogin = async () => {
+    if (!userId.trim() || !password.trim()) return;
+    setLoading(true);
+    try {
+      const result = await login({ userId: userId.trim(), userPw: password });
+      console.log('로그인 성공:', result.user);
       onLoginSuccess?.();
+    } catch (e: any) {
+      Alert.alert('로그인 실패', e.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -110,8 +120,11 @@ const LoginScreen: React.FC<LoginScreenProps & any> = ({ onLoginSuccess, navigat
               style={styles.loginButton}
               onPress={handleLogin}
               activeOpacity={0.8}
+              disabled={loading}
             >
-              <Text style={styles.loginButtonText}>로그인</Text>
+              {loading
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.loginButtonText}>로그인</Text>}
             </TouchableOpacity>
           </View>
         </View>
