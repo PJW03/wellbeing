@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   StatusBar,
   SafeAreaView,
   Image,
+  ImageSourcePropType,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
@@ -18,13 +19,12 @@ import NoticeIcon from '../icon/noticeicon.svg';
 import ArrowIcon from '../icon/rightarrow.svg';
 import ExitIcon from '../icon/exit.svg';
 import ProfileImage from '../image/image.png';
+import { getLatestEnv } from '../api/env';
 
 // ─── 색상 상수 ─────────────────────────────────────────────
 const TEAL       = '#4ECBA0';
 const TEAL_LIGHT = '#C8EDE5';
-const BG         = '#E8F5F2';
 const WHITE      = '#FFFFFF';
-const GRAY       = '#A8B8B4';
 const TEXT       = '#2C3E50';
 const TEXT_S     = '#7F8C8D';
 const VALUE      = '#1B9B92';
@@ -35,78 +35,160 @@ const GAUGE_HIGH = '#E06A6A';
 
 const STATUS_BAR_HEIGHT = (StatusBar.currentHeight as number) || 20;
 
-// ─── 타입 ──────────────────────────────────────────────────
+// ─── 상태 이미지 매핑 ──────────────────────────────────────
+const statusImages: Record<string, ImageSourcePropType> = {
+  normal:       require('../image/normal.png'),
+  temp_high:    require('../image/temp_high.png'),
+  temp_low:     require('../image/temp_low.png'),
+  humid_high:   require('../image/humid_high.png'),
+  humid_low:    require('../image/humid_low.png'),
+  co2_high:     require('../image/co2_high.png'),
+  dust_bad:     require('../image/dust_bad.png'),
+  posture_bad:  require('../image/posture_bad.png'),
+  posture_warn: require('../image/posture_warn.png'),
+  touch:        require('../image/touch.png'),
+  voice:        require('../image/voice.png'),
+};
+
 interface SensorData {
   label: string;
   key: string;
-  value: number;
-  display: string;
+  rawValue: number;
+  unit: string;
 }
 
-// ─── 게이지 바 ─────────────────────────────────────────────
-const getGaugeColor = (value: number) => {
-  if (value <= 40) return GAUGE_GOOD;
-  if (value <= 70) return GAUGE_MID;
+// 센서별 실제 수치 → 게이지 % 변환
+// 온도: 0~40°C, 습도: 0~100%, 미세먼지: 0~150 μg/m³, CO₂: 400~2000 ppm
+const toGaugeValue = (key: string, raw: number): number => {
+  let ratio: number;
+  switch (key) {
+    case 'temp':     ratio = raw / 40;              break;
+    case 'humidity': ratio = raw / 100;             break;
+    case 'dust':     ratio = raw / 150;             break;
+    case 'co2':      ratio = (raw - 400) / 1600;   break;
+    default:         ratio = raw / 100;
+  }
+  return Math.min(Math.max(ratio * 100, 0), 100);
+};
+
+const getGaugeColor = (pct: number) => {
+  if (pct <= 40) return GAUGE_GOOD;
+  if (pct <= 70) return GAUGE_MID;
   return GAUGE_HIGH;
 };
 
-const GaugeBar: React.FC<{ value: number }> = ({ value }) => (
+const getAlerts = (sensors: SensorData[]): string[] => {
+  const temp     = sensors.find(s => s.key === 'temp');
+  const humidity = sensors.find(s => s.key === 'humidity');
+  const co2      = sensors.find(s => s.key === 'co2');
+  const dust     = sensors.find(s => s.key === 'dust');
+
+  const messages: string[] = [];
+
+  if (temp) {
+    if (temp.rawValue > 30)      messages.push('실내 온도가 높으니 냉방을 켜 주세요!');
+    else if (temp.rawValue < 18) messages.push('실내 온도가 낮으니 난방을 켜 주세요!');
+  }
+  if (humidity) {
+    if (humidity.rawValue > 70)      messages.push('습도가 높으니 제습기를 사용하세요!');
+    else if (humidity.rawValue < 30) messages.push('습도가 낮으니 가습기를 사용하세요!');
+  }
+  if (co2 && co2.rawValue > 1000)  messages.push('CO₂ 농도가 높으니 환기를 해보세요!');
+  if (dust && dust.rawValue > 80)  messages.push('미세먼지가 나쁘니 공기청정기를 켜 주세요!');
+
+  if (messages.length === 0) messages.push('실내 환경이 쾌적합니다 😊');
+
+  return messages;
+};
+
+const getStatusImage = (sensors: SensorData[]): ImageSourcePropType => {
+  const temp     = sensors.find(s => s.key === 'temp');
+  const humidity = sensors.find(s => s.key === 'humidity');
+  const co2      = sensors.find(s => s.key === 'co2');
+  const dust     = sensors.find(s => s.key === 'dust');
+
+  if (temp     && temp.rawValue     > 30)   return statusImages.temp_high;
+  if (temp     && temp.rawValue     < 18)   return statusImages.temp_low;
+  if (co2      && co2.rawValue      > 1000) return statusImages.co2_high;
+  if (dust     && dust.rawValue     > 80)   return statusImages.dust_bad;
+  if (humidity && humidity.rawValue > 70)   return statusImages.humid_high;
+  if (humidity && humidity.rawValue < 30)   return statusImages.humid_low;
+  return statusImages.normal;
+};
+
+// ─── 작은 게이지 바 ────────────────────────────────────────
+const MiniGaugeBar: React.FC<{ value: number }> = ({ value }) => (
   <View style={gs.track}>
-    <View
-      style={[
-        gs.fill,
-        { width: `${value}%` as any, backgroundColor: getGaugeColor(value) },
-      ]}
-    />
+    <View style={[gs.fill, { width: `${value}%` as any, backgroundColor: getGaugeColor(value) }]} />
   </View>
 );
 
 const gs = StyleSheet.create({
   track: {
-    width: '100%',
-    height: 16,
-    borderRadius: 8,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: GAUGE_BG,
     overflow: 'hidden',
+    marginTop: 4,
   },
-  fill: {
-    height: '100%',
-    borderRadius: 8,
-  },
+  fill: { height: '100%', borderRadius: 3 },
 });
 
 // ─── 메인 ──────────────────────────────────────────────────
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const [activeTab, setActiveTab] = useState<'report' | 'home'>('home');
+  const [activeTab, setActiveTab]         = useState<'report' | 'home'>('home');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [sensors, setSensors] = useState<SensorData[]>([
+    { label: '온도', key: 'temp',     rawValue: 0, unit: '°C'  },
+    { label: '습도', key: 'humidity', rawValue: 0, unit: '%'   },
+    { label: '미세', key: 'dust',     rawValue: 0, unit: 'μg'  },
+    { label: 'CO₂', key: 'co2',      rawValue: 0, unit: 'ppm' },
+  ]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError]         = useState<string | null>(null);
 
-  const sensors: SensorData[] = [
-    { label: '온도', key: 'temp',     value: 72, display: '24°C'    },
-    { label: '습도', key: 'humidity', value: 40, display: '40%'     },
-    { label: '미세', key: 'dust',     value: 55, display: '좋음: 35' },
-    { label: 'CO₂', key: 'co2',      value: 44, display: '좋음: 35' },
-    { label: 'Item', key: 'item',     value: 50, display: '좋음: 35' },
-  ];
+  useEffect(() => {
+    const fetchEnv = async () => {
+      try {
+        setError(null);
+        const data = await getLatestEnv(1);
+        setSensors([
+          { label: '온도', key: 'temp',     rawValue: data.temp,  unit: '°C'  },
+          { label: '습도', key: 'humidity', rawValue: data.humid, unit: '%'   },
+          { label: '미세', key: 'dust',     rawValue: data.dust,  unit: 'μg'  },
+          { label: 'CO₂', key: 'co2',      rawValue: data.co2,   unit: 'ppm' },
+        ]);
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-  const alerts = [
-    '실내 온도가 낮으니 난방을 켜 주세요!',
-    '습도가 높으니 환기를 해보세요!',
-  ];
+    fetchEnv();
+    const interval = setInterval(fetchEnv, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const alerts = getAlerts(sensors);
+
+  const statusImage = getStatusImage(sensors);
 
   return (
     <SafeAreaView style={s.safeArea}>
       <Svg pointerEvents="none" style={s.radialBackground}>
         <Defs>
           <RadialGradient id="homeBgGradient" cx="10%" cy="10%" rx="90%" ry="90%">
-            <Stop offset="0%" stopColor="#00C5B9" stopOpacity="0.18" />
-            <Stop offset="45%" stopColor="#66D9CE" stopOpacity="0.08" />
-            <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="1" />
+            <Stop offset="0%"   stopColor="#00C5B9" stopOpacity="0.18" />
+            <Stop offset="45%"  stopColor="#66D9CE" stopOpacity="0.08" />
+            <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="1"    />
           </RadialGradient>
         </Defs>
         <Rect x="0" y="0" width="100%" height="100%" fill="url(#homeBgGradient)" />
       </Svg>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+
       {/* ── 헤더 ── */}
       <View style={s.header}>
         <TouchableOpacity activeOpacity={0.7} onPress={() => setIsSidebarOpen(true)}>
@@ -123,6 +205,7 @@ const HomeScreen: React.FC = () => {
         </TouchableOpacity>
       </View>
 
+      {/* ── 사이드바 ── */}
       {isSidebarOpen && (
         <View style={s.sidebarOverlay}>
           <TouchableOpacity style={s.sidebarBackdrop} activeOpacity={1} onPress={() => setIsSidebarOpen(false)} />
@@ -160,40 +243,32 @@ const HomeScreen: React.FC = () => {
         </View>
       )}
 
-      
-
       <ScrollView contentContainerStyle={s.content}>
-        {/* 캐릭터 박스 (외곽선) */}
-        <View style={s.charGroup}>
-          <View style={s.charBox}>
-            <Text style={s.charText}>{'( ¯ ﹃ ¯ )zzz'}</Text>
-          </View>
-          <Text style={s.charSubCenter}>졸려요...</Text>
-        </View>
-
-        {/* 센서/통계 영역: 좌우 정렬 */}
-        <View style={s.rowWrap}>
-          <View style={[s.card, s.leftSensorCard]}>
-            {sensors.map((item, idx) => (
-              <View key={item.key} style={[s.sensorRow, idx < sensors.length - 1 && s.sensorDivider]}> 
-                <Text style={s.sensorLabel}>{item.label}</Text>
-                <View style={s.gaugeWrapper}>
-                  <GaugeBar value={item.value} />
+        {/* ── 상단: 센서 수치 (작게) ── */}
+        <View style={s.statsCard}>
+          {error ? (
+            <Text style={s.errorText}>{error}</Text>
+          ) : (
+            <View style={s.statsRow}>
+              {sensors.map((item, idx) => (
+                <View key={item.key} style={[s.statItem, idx < sensors.length - 1 && s.statItemBorder]}>
+                  <Text style={s.statLabel}>{item.label}</Text>
+                  <Text style={s.statValue}>
+                    {isLoading ? '-' : `${item.rawValue}${item.unit}`}
+                  </Text>
+                  <MiniGaugeBar value={isLoading ? 0 : toGaugeValue(item.key, item.rawValue)} />
                 </View>
-              </View>
-            ))}
-          </View>
-
-          <View style={[s.card, s.rightStatCard]}>
-            {sensors.map((it) => (
-              <View key={it.key} style={s.statRow}>
-                <Text style={s.statText} numberOfLines={1}>{it.display}</Text>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          )}
         </View>
 
-        {/* 알림 박스 (테두리) */}
+        {/* ── 가운데: 상태 이미지 (크게) ── */}
+        <View style={s.imageCard}>
+          <Image source={statusImage} style={s.statusImage} resizeMode="contain" />
+        </View>
+
+        {/* ── 하단: 알림 박스 ── */}
         <View style={s.alertOuter}>
           {alerts.map((msg, i) => (
             <Text key={i} style={s.alertText}>{msg}</Text>
@@ -211,7 +286,6 @@ const HomeScreen: React.FC = () => {
           <ReportIcon width={26} height={26} />
           {activeTab === 'report' && <Text style={s.tabLabel}>Report</Text>}
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[s.tabItem, activeTab === 'home' && s.tabItemActive]}
           onPress={() => setActiveTab('home')}
@@ -227,10 +301,9 @@ const HomeScreen: React.FC = () => {
 
 // ─── 스타일 ────────────────────────────────────────────────
 const s = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: WHITE,
-  },
+  safeArea: { flex: 1, backgroundColor: WHITE },
+
+  radialBackground: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
 
   // 헤더
   header: {
@@ -239,7 +312,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: STATUS_BAR_HEIGHT + 6,
-    paddingBottom: 16,
+    paddingBottom: 12,
   },
   menuLine: {
     width: 22,
@@ -262,79 +335,98 @@ const s = StyleSheet.create({
     shadowRadius: 6,
   },
 
-  // 바디: 3카드가 균등하게 공간 차지
-  body: {
-    flex: 1,
+  // 스크롤 컨텐츠
+  content: {
     paddingHorizontal: 16,
-    paddingBottom: 20,
-    gap: 30,
+    paddingTop: 40,
+    paddingBottom: 36,
+    gap: 60,
   },
 
-  // 카드 공통 — 테두리 없음, 그림자만
-  card: {
+  // 상단 센서 수치 카드
+  statsCard: {
     backgroundColor: WHITE,
-    borderRadius: 22,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.07,
     shadowRadius: 8,
   },
-
-  // 캐릭터 카드
-  charCard: {
-    flex: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  charText: {
-    fontSize: 32,
-    color: TEXT,
-    fontWeight: '300',
-    letterSpacing: 3,
-    marginBottom: 8,
-  },
-  charSub: {
-    fontSize: 14,
-    color: TEXT_S,
-  },
-
-  // 센서 카드
-  sensorCard: {
-    flex: 4,
-    paddingHorizontal: 20,
-    justifyContent: 'center',
-  },
-  sensorRow: {
-    height: 52,
+  statsRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
   },
-  sensorDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEF5F3',
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    paddingTop: 8,
   },
-  sensorLabel: {
-    width: 38,
-    fontSize: 12,
+  statItemBorder: {
+    borderRightWidth: 1,
+    borderRightColor: '#EEF5F3',
+  },
+  statLabel: {
+    fontSize: 10,
     color: TEXT_S,
     fontWeight: '600',
+    marginBottom: 2,
   },
-  gaugeWrapper: {
-    flex: 1,
-    marginHorizontal: 12,
+  statValue: {
+    fontSize: 18,
+    color: VALUE,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#E06A6A',
+    textAlign: 'center',
+    paddingVertical: 8,
   },
 
-  // 알림 카드
-  alertCard: {
-    flex: 2,
-    justifyContent: 'center',
+  // 가운데 이미지 카드
+  imageCard: {
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: TEAL_LIGHT,
+    backgroundColor: '#EFEFEF',
+    overflow: 'hidden',
+    height: 280,
     alignItems: 'center',
-    paddingHorizontal: 20,
-    gap: 6,
+    justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
   },
-  
+  statusImage: {
+    width: '90%',
+    height: '90%',
+  },
+
+  // 알림 박스
+  alertOuter: {
+    borderWidth: 2,
+    borderColor: TEAL_LIGHT,
+    borderRadius: 14,
+    padding: 22,
+    backgroundColor: WHITE,
+  },
+  alertText: {
+    fontSize: 16,
+    color: TEXT,
+    fontWeight: '800',
+    textAlign: 'center',
+    lineHeight: 32,
+    letterSpacing: 0.6,
+  },
 
   // 탭바
   tabBar: {
@@ -356,127 +448,17 @@ const s = StyleSheet.create({
     borderRadius: 24,
     gap: 6,
   },
-  tabItemActive: {
-    backgroundColor: 'rgba(83, 157, 243, 0.37)',
-  },
-  tabLabel: {
-    fontSize: 14,
-    color: '#539DF3',
-    fontWeight: '700',
-  },
-  content: {
-    paddingTop: 12,
-    paddingBottom: 36,
-    rowGap: 26,
-  },
-  radialBackground: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-  charBox: {
-    marginHorizontal: 16,
-    borderWidth: 2,
-    borderColor: TEAL_LIGHT,
-    borderRadius: 14,
-    paddingVertical: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'transparent',
-  },
-  charGroup: {
-    gap: 8,
-  },
-  charSubCenter: {
-    textAlign: 'center',
-    color: TEXT_S,
-    fontSize: 14,
-    marginTop: 10,
-    marginBottom: 6,
-  },
-  rowWrap: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    gap: 16,
-    alignItems: 'stretch',
-    marginTop: 8,
-  },
-  leftSensorCard: {
-    flex: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  rightStatCard: {
-    width: 96,
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    paddingVertical: 12,
-    gap: 0,
-  },
-  statText: {
-    fontSize: 14,
-    color: VALUE,
-    fontWeight: '800',
-    letterSpacing: 0.2,
-    height: 18,
-    lineHeight: 18,
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    includeFontPadding: false,
-  },
-  statSub: {
-    fontSize: 14,
-    color: TEXT_S,
-    marginTop: 6,
-  },
-  statDivider: {
-    width: '70%',
-    height: 1,
-    backgroundColor: '#EEF5F3',
-    marginVertical: 10,
-  },
-  statItem: {
-    fontSize: 12,
-    color: TEXT,
-    marginTop: 2,
-  },
-  statRow: {
-    height: 52,
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
-    paddingVertical: 0,
-  },
-  alertOuter: {
-    marginHorizontal: 16,
-    borderWidth: 2,
-    borderColor: TEAL_LIGHT,
-    borderRadius: 14,
-    padding: 22,
-    backgroundColor: WHITE,
-    marginTop: 18,
-    marginBottom: 26,
-  },
-  alertText: {
-    fontSize: 16,
-    color: TEXT,
-    fontWeight: '800',
-    textAlign: 'center',
-    lineHeight: 32,
-    letterSpacing: 0.6,
-  },
+  tabItemActive: { backgroundColor: 'rgba(83, 157, 243, 0.37)' },
+  tabLabel: { fontSize: 14, color: '#539DF3', fontWeight: '700' },
+
+  // 사이드바
   sidebarOverlay: {
     ...StyleSheet.absoluteFill,
     flexDirection: 'row-reverse',
     zIndex: 20,
     backgroundColor: 'rgba(0, 0, 0, 0.2)',
   },
-  sidebarBackdrop: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
+  sidebarBackdrop: { flex: 1, backgroundColor: 'transparent' },
   sidebarPanel: {
     width: '60%',
     height: '90%',
@@ -492,15 +474,8 @@ const s = StyleSheet.create({
     shadowOffset: { width: -4, height: 0 },
     elevation: 8,
   },
-  sidebarProfile: {
-    alignItems: 'center',
-    gap: 12,
-  },
-  sidebarMenu: {
-    marginTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#E8E8E8',
-  },
+  sidebarProfile: { alignItems: 'center', gap: 12 },
+  sidebarMenu: { marginTop: 20, borderTopWidth: 1, borderTopColor: '#E8E8E8' },
   sidebarMenuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -516,10 +491,7 @@ const s = StyleSheet.create({
     textAlign: 'center',
     width: 96,
   },
-  sidebarFooter: {
-    marginTop: 'auto',
-    alignItems: 'center',
-  },
+  sidebarFooter: { marginTop: 'auto', alignItems: 'center' },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -531,11 +503,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 24,
     minWidth: 160,
   },
-  logoutText: {
-    fontSize: 14,
-    color: '#F0808B',
-    fontWeight: '700',
-  },
+  logoutText: { fontSize: 14, color: '#F0808B', fontWeight: '700' },
   avatarRing: {
     width: 130,
     height: 130,
@@ -545,24 +513,10 @@ const s = StyleSheet.create({
     alignItems: 'center',
     overflow: 'hidden',
   },
-  avatarImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-  },
-  profileNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  profileName: {
-    fontSize: 18,
-    color: TEXT,
-    fontWeight: '700',
-  },
-  profileEditIcon: {
-    marginTop: 2,
-  },
+  avatarImage: { width: 120, height: 120, borderRadius: 60 },
+  profileNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  profileName: { fontSize: 18, color: TEXT, fontWeight: '700' },
+  profileEditIcon: { marginTop: 2 },
 });
 
 export default HomeScreen;

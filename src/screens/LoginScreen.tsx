@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { styles } from '../styles/loginScreenStyles';
 import { login } from '../api/auth';
+import { registerFcmToken, setupForegroundNotification } from '../utils/fcm';
 
 interface LoginScreenProps {
   onLoginSuccess?: () => void;
@@ -33,6 +34,10 @@ const LoginScreen: React.FC<LoginScreenProps & any> = ({ onLoginSuccess, navigat
       const result = await login({ userId: userId.trim(), userPw: password });
       console.log('로그인 성공:', result.user);
       onLoginSuccess?.();
+      // FCM 등록은 로그인 완료 후 백그라운드에서 처리
+      registerFcmToken(result.user.userId).then(() => {
+        setupForegroundNotification();
+      });
     } catch (e: any) {
       Alert.alert('로그인 실패', e.message);
     } finally {

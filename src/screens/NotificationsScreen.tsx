@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   StatusBar,
   SafeAreaView,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import NoticeIcon from '../icon/noticeicon.svg';
@@ -16,35 +17,62 @@ import DustIcon from '../icon/dust.svg';
 import Co2Icon from '../icon/co2.svg';
 import StretchIcon from '../icon/stretch.svg';
 import LeftArrowIcon from '../icon/leftarrow.svg';
+import { getNotifications, markNotificationRead, Notification } from '../api/notification';
 
-const WHITE = '#FFFFFF';
-const BG = '#F7FAFA';
-const TEXT = '#2C3E50';
-const TEXT_M = '#5A6B73';
-const BORDER = '#D9E6E3';
-const CHIP = '#8ECFC6';
-const WHITE_ICON = '#FFFFFF';
+const WHITE    = '#FFFFFF';
+const BG       = '#F7FAFA';
+const TEXT     = '#2C3E50';
+const TEXT_M   = '#5A6B73';
+const BORDER   = '#D9E6E3';
+const CHIP     = '#8ECFC6';
+const CHIP_READ = '#D0E8E4';
+const TEAL     = '#1B9B92';
 
-const iconMap = {
-  temp: TempIcon,
-  humidity: HumidityIcon,
-  dust: DustIcon,
-  co2: Co2Icon,
-  stretch: StretchIcon,
+// sensorType → 아이콘 매핑
+const iconMap: Record<string, React.FC<any>> = {
+  TEMP:     TempIcon,
+  HUMIDITY: HumidityIcon,
+  DUST:     DustIcon,
+  CO2:      Co2Icon,
+  POSTURE:  StretchIcon,
 };
 
-const notifications = [
-  { id: '1', type: 'humidity', text: '습도가 높으니 환기를 해보세요!', date: '6, June' },
-  { id: '2', type: 'temp', text: '실내 온도가 낮으니 난방을 켜 주세요!', date: '5, June' },
-  { id: '3', type: 'dust', text: '미세먼지 나쁨! 창문을 닫아주세요', date: '5, June' },
-  { id: '4', type: 'co2', text: 'CO2농도 up! 환기를 시켜주세요', date: '4, June' },
-  { id: '5', type: 'stretch', text: '턱 괴기 대신, 스트레칭을 해보세요!', date: '4, June' },
-  { id: '6', type: 'temp', text: '실내 온도가 낮으니 난방을 켜 주세요!', date: '3, June' },
-  { id: '7', type: 'humidity', text: '습도가 높으니 환기를 해보세요!', date: '2, June' },
-];
+const formatDate = (sentAt: string) => {
+  const d = new Date(sentAt);
+  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+};
 
 const NotificationsScreen: React.FC = () => {
   const navigation = useNavigation<any>();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [isLoading, setIsLoading]         = useState(true);
+  const [error, setError]                 = useState<string | null>(null);
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setError(null);
+      const data = await getNotifications(1);
+      setNotifications(data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  const handleRead = async (notiNo: number) => {
+    try {
+      await markNotificationRead(notiNo);
+      setNotifications(prev =>
+        prev.map(n => n.notiNo === notiNo ? { ...n, isRead: true } : n)
+      );
+    } catch (_) {}
+  };
+
   return (
     <SafeAreaView style={s.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={BG} />
@@ -56,19 +84,38 @@ const NotificationsScreen: React.FC = () => {
           <Text style={s.title}>누적 알림</Text>
           <View style={s.headerSpacer} />
         </View>
+
+        {isLoading && (
+          <ActivityIndicator size="large" color={TEAL} style={s.loader} />
+        )}
+
+        {error && (
+          <Text style={s.errorText}>{error}</Text>
+        )}
+
+        {!isLoading && !error && notifications.length === 0 && (
+          <Text style={s.emptyText}>알림이 없습니다.</Text>
+        )}
+
         {notifications.map((item) => {
-          const Icon = iconMap[item.type as keyof typeof iconMap] ?? NoticeIcon;
+          const Icon = iconMap[item.sensorType.toUpperCase()] ?? NoticeIcon;
           return (
-          <View key={item.id} style={s.card}>
-            <View style={s.iconWrap}>
-              <Icon width={20} height={20} />
-            </View>
-            <Text style={s.text} numberOfLines={1}>
-              {item.text}
-            </Text>
-            <Text style={s.date}>{item.date}</Text>
-          </View>
-        );
+            <TouchableOpacity
+              key={item.notiNo}
+              style={[s.card, item.isRead && s.cardRead]}
+              activeOpacity={0.75}
+              onPress={() => !item.isRead && handleRead(item.notiNo)}
+            >
+              <View style={[s.iconWrap, item.isRead && s.iconWrapRead]}>
+                <Icon width={20} height={20} />
+              </View>
+              <View style={s.textWrap}>
+                <Text style={[s.text, item.isRead && s.textRead]}>{item.message}</Text>
+                <Text style={s.category}>{item.category}</Text>
+              </View>
+              <Text style={s.date}>{formatDate(item.sentAt)}</Text>
+            </TouchableOpacity>
+          );
         })}
       </ScrollView>
     </SafeAreaView>
@@ -76,10 +123,7 @@ const NotificationsScreen: React.FC = () => {
 };
 
 const s = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: BG,
-  },
+  safeArea: { flex: 1, backgroundColor: BG },
   content: {
     paddingHorizontal: 18,
     paddingTop: 44,
@@ -92,21 +136,12 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 8,
   },
-  backButton: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerSpacer: {
-    width: 32,
-    height: 32,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: TEXT_M,
-  },
+  backButton: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center' },
+  headerSpacer: { width: 32, height: 32 },
+  title: { fontSize: 20, fontWeight: '700', color: TEXT_M },
+  loader: { marginTop: 40 },
+  errorText: { fontSize: 14, color: '#E06A6A', textAlign: 'center', marginTop: 40 },
+  emptyText: { fontSize: 14, color: TEXT_M, textAlign: 'center', marginTop: 40 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -118,6 +153,10 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
     gap: 12,
   },
+  cardRead: {
+    backgroundColor: '#F5F9F8',
+    borderColor: '#E0EDEA',
+  },
   iconWrap: {
     width: 40,
     height: 40,
@@ -126,19 +165,14 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  noticeIcon: {
-    color: WHITE_ICON,
+  iconWrapRead: {
+    backgroundColor: CHIP_READ,
   },
-  text: {
-    flex: 1,
-    fontSize: 14,
-    color: TEXT,
-    fontWeight: '600',
-  },
-  date: {
-    fontSize: 12,
-    color: TEXT_M,
-  },
+  textWrap: { flex: 1 },
+  text: { fontSize: 14, color: TEXT, fontWeight: '600' },
+  textRead: { color: TEXT_M, fontWeight: '400' },
+  category: { fontSize: 11, color: TEAL, marginTop: 2 },
+  date: { fontSize: 11, color: TEXT_M },
 });
 
 export default NotificationsScreen;
