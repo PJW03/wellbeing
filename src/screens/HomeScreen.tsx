@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
+import { unregisterFcmListeners } from '../utils/fcm';
 import ReportIcon from '../icon/report.svg';
 import HomeIcon from '../icon/home.svg';
 import EditIcon from '../icon/edit.svg';
@@ -234,7 +235,7 @@ const HomeScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
             <View style={s.sidebarFooter}>
-              <TouchableOpacity style={s.logoutButton} activeOpacity={0.85}>
+              <TouchableOpacity style={s.logoutButton} activeOpacity={0.85} onPress={() => { unregisterFcmListeners(); }}>
                 <ExitIcon width={16} height={16} color="#F0808B" />
                 <Text style={s.logoutText}>Log Out</Text>
               </TouchableOpacity>
