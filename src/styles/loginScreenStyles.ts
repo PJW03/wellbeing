@@ -1,4 +1,4 @@
-import { StyleSheet, Platform } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 export const styles = StyleSheet.create({
   container: {
@@ -7,180 +7,155 @@ export const styles = StyleSheet.create({
   keyboardAvoid: {
     flex: 1,
   },
-  radialBackground: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-  backButton: {
-    alignSelf: 'flex-start',
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    marginBottom: 8,
-  },
-  backButtonText: {
-    fontSize: 26,
-    color: '#1B9B92',
-    fontWeight: '600',
-  },
-  headerWrapper: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 20,
-    paddingBottom: 6,
-    paddingLeft: 20,
-  },
-  containerHeader: {
-    // placeholder if needed for future
-  },
+
+
+
+
+
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  content: {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  // --- Figma 로그인 화면 (카드형) ---
+  screenBg: {
+    backgroundColor: '#F7FFFE',
+  },
+  scrollContentTop: {
+    justifyContent: 'flex-start',
+  },
+  cardScreenContent: {
     alignSelf: 'stretch',
-    paddingHorizontal: 30,
-    alignItems: 'flex-start',
-  },
-  titleSection: {
-    marginBottom: 40,
-    alignItems: 'flex-start',
-    paddingLeft: 6,
-  },
-  title: {
-    fontSize: 42,
-    fontWeight: '700',
-    color: '#1B9B92',
-    letterSpacing: 1,
-  },
-  titleUnderline: {
-    alignSelf: 'flex-start',
-    borderBottomWidth: 4,
-    borderBottomColor: '#1B9B92',
-    paddingRight: 64,
-    marginTop: 6,
-    opacity: 0.9,
-  },
-  inputSection: {
-    alignSelf: 'stretch',
-    marginBottom: 12,
-  },
-  input: {
-    alignSelf: 'stretch',
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    borderWidth: 1,
-    borderColor: '#E8E8E8',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    marginBottom: 16,
-    fontSize: 14,
-    color: '#333333',
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'Roboto',
-  },
-  linkSection: {
-    alignSelf: 'stretch',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  leftLinks: {
-    flexDirection: 'row',
+    paddingHorizontal: 24,
     alignItems: 'center',
   },
-  linkText: {
-    fontSize: 12,
-    color: '#666666',
-    fontWeight: '400',
+  welcomeSection: {
+    alignSelf: 'stretch',
+    marginBottom: 4,
   },
-  linkDivider: {
+  welcomeTitle: {
     fontSize: 20,
-    color: '#CCCCCC',
-    marginHorizontal: 6,
+    fontWeight: '700',
+    color: '#1E2A32',
+    lineHeight: 28,
   },
-  buttonSection: {
+  welcomeAccent: {
+    color: '#18B8AE',
+  },
+  welcomeSubtitle: {
+    fontSize: 13,
+    color: '#8A9A9E',
+    marginTop: 4,
+  },
+  mascotImage: {
+    width: 150,
+    height: 147,
+    transform: [{ rotate: '-6deg' }],
+  },
+  card: {
     alignSelf: 'stretch',
-    alignItems: 'center',
-    marginBottom: 30,
+    backgroundColor: '#F7FAFA',
+    borderWidth: 0.75,
+    borderColor: 'rgba(231,241,243,0.9)',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    marginTop: -20,
+    zIndex: 1,
+    shadowColor: '#3A4A4E',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
   },
-  loginButton: {
-    backgroundColor: '#5DBAAD',
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  loginButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    letterSpacing: 1,
-  },
-  rowContainer: {
-    alignSelf: 'stretch',
+  cardInputRow: {
     flexDirection: 'row',
-    gap: 8,
     alignItems: 'center',
-    marginBottom: 16,
+    alignSelf: 'stretch',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginBottom: 12,
+    shadowColor: '#3A4A4E',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  rowInput: {
+  cardInputIcon: {
+    marginRight: 8,
+  },
+  cardInput: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    borderWidth: 1,
-    borderColor: '#E8E8E8',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    fontSize: 14,
+    fontSize: 13,
     color: '#333333',
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'Roboto',
   },
-  smallButton: {
-    backgroundColor: '#79bbb2',
-    borderRadius: 16,
-    paddingHorizontal: 18,
+  cardButton: {
+    alignSelf: 'stretch',
+    backgroundColor: '#5DBAAD',
+    borderRadius: 14,
     paddingVertical: 14,
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 16,
   },
-  smallButtonText: {
-    fontSize: 12,
+  cardButtonText: {
+    fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
-    letterSpacing: 0.5,
   },
-  resultBox: {
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    borderColor: 'transparent',
-    overflow: 'hidden',
-    paddingVertical: 16,
+  cardLinksRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 28,
+    marginBottom: 14,
   },
-  resultBoxContent: {
-    position: 'relative',
-    overflow: 'hidden',
+  cardLinkText: {
+    fontSize: 12,
+    color: '#6B7A7E',
   },
-  resultBoxGradient: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
+  cardSignupRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: '#EAF6F3',
+    borderRadius: 12,
+    paddingVertical: 10,
   },
-  resultText: {
-    fontSize: 14,
-    color: '#333333',
-    zIndex: 1,
+  cardSignupText: {
+    fontSize: 12,
+    color: '#8A9A9E',
+  },
+  cardSignupLink: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1B9B92',
+    marginLeft: 4,
   },
 });

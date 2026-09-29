@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,518 +6,512 @@ import {
   ScrollView,
   TouchableOpacity,
   StatusBar,
-  SafeAreaView,
   Image,
-  ImageSourcePropType,
+  useWindowDimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
-import { unregisterFcmListeners } from '../utils/fcm';
-import ReportIcon from '../icon/report.svg';
-import HomeIcon from '../icon/home.svg';
+import LinearGradient from 'react-native-linear-gradient';
+import Svg, { G, Path } from 'react-native-svg';
 import EditIcon from '../icon/edit.svg';
-import NoticeIcon from '../icon/noticeicon.svg';
-import ArrowIcon from '../icon/rightarrow.svg';
-import ExitIcon from '../icon/exit.svg';
+import ChevronRightIcon from '../icon/chevron_right_small.svg';
+import BellBoxIcon from '../icon/bell_box.svg';
+import CardEnvIcon from '../icon/card_env.svg';
+import CardCalendarIcon from '../icon/card_calendar.svg';
+import CardSeatIcon from '../icon/card_seat.svg';
+import SensorTempIcon from '../icon/sensor_temp.svg';
+import SensorHumidityIcon from '../icon/sensor_humidity.svg';
+import SensorDustIcon from '../icon/sensor_dust.svg';
+import SproutIcon from '../icon/sprout.svg';
+import TabBar from '../components/TabBar';
+import { useFigmaScale } from '../utils/figmaScale';
 import ProfileImage from '../image/image.png';
-import { getLatestEnv } from '../api/env';
+import HomeBgImage from '../image/home_bg.png';
+import MascotImage from '../image/home_mascot.png';
+import SpeechBubbleImage from '../image/speech_bubble.png';
+import PostureImage from '../image/posture_sitting_figma.png';
+// TODO: API 임시 비활성화 — 복구 시 아래 두 줄과 useEffect의 fetchEnv 주석 참고
+// import { unregisterFcmListeners } from '../utils/fcm';
+// import { getLatestEnv } from '../api/env';
 
-// ─── 색상 상수 ─────────────────────────────────────────────
-const TEAL       = '#4ECBA0';
-const TEAL_LIGHT = '#C8EDE5';
-const WHITE      = '#FFFFFF';
-const TEXT       = '#2C3E50';
-const TEXT_S     = '#7F8C8D';
-const VALUE      = '#1B9B92';
-const GAUGE_BG   = '#E8E8E8';
-const GAUGE_GOOD = '#58C77A';
-const GAUGE_MID  = '#4FA3D9';
-const GAUGE_HIGH = '#E06A6A';
+// Figma(Pretendard) 기본 줄 높이 — 안드로이드 기본 줄 높이가 더 커서 글자가 아래로 밀리는 것 방지
+const LH = 1.2;
 
-const STATUS_BAR_HEIGHT = (StatusBar.currentHeight as number) || 20;
+// ─── 색상 상수 (Figma 홈화면 - 메인) ─────────────────────────
+const BG          = '#F7FAFA';
+const TEAL        = '#18B8AE';
+const TEAL_LIGHT  = '#DDF7F4';
+const TEXT        = '#172033';
+const TEXT_S      = '#7B8794';
+const TEXT_TIME   = '#4E5761';
+const BORDER      = '#EDF2F2';
+const BORDER_SOFT = 'rgba(231,241,243,0.9)';
+const GOOD        = '#20C997';
+const WARN        = '#EF5350';
+const WHITE       = '#FFFFFF';
 
-// ─── 상태 이미지 매핑 ──────────────────────────────────────
-const statusImages: Record<string, ImageSourcePropType> = {
-  normal:       require('../image/normal.png'),
-  temp_high:    require('../image/temp_high.png'),
-  temp_low:     require('../image/temp_low.png'),
-  humid_high:   require('../image/humid_high.png'),
-  humid_low:    require('../image/humid_low.png'),
-  co2_high:     require('../image/co2_high.png'),
-  dust_bad:     require('../image/dust_bad.png'),
-  posture_bad:  require('../image/posture_bad.png'),
-  posture_warn: require('../image/posture_warn.png'),
-  touch:        require('../image/touch.png'),
-  voice:        require('../image/voice.png'),
-};
+// 본문 좌우 여백(dp) — Figma 카드 영역(x 9 ~ 285.75)을 이 여백 안쪽에 맞춰 배치
+const SIDE_MARGIN = 18;
+const CONTENT_LEFT = 9;
+const CONTENT_WIDTH = 276.75;
+
+// 유저 이름 — TODO: API 임시 비활성화, 복구 시 프로필 API의 닉네임으로 교체
+const USER_NICKNAME = '초코';
 
 interface SensorData {
   label: string;
-  key: string;
+  key: 'temp' | 'humidity' | 'dust' | 'co2';
   rawValue: number;
   unit: string;
 }
 
-// 센서별 실제 수치 → 게이지 % 변환
+// Figma에서 이산화탄소 칸도 온도계 아이콘을 사용함 (디자인 그대로 반영)
+const sensorIcons: Record<SensorData['key'], React.FC<any>> = {
+  temp: SensorTempIcon,
+  humidity: SensorHumidityIcon,
+  dust: SensorDustIcon,
+  co2: SensorTempIcon,
+};
+
+// 센서별 실제 수치 → 게이지 비율(0~1)
 // 온도: 0~40°C, 습도: 0~100%, 미세먼지: 0~150 μg/m³, CO₂: 400~2000 ppm
-const toGaugeValue = (key: string, raw: number): number => {
+const toGaugeRatio = (key: string, raw: number): number => {
   let ratio: number;
   switch (key) {
-    case 'temp':     ratio = raw / 40;              break;
-    case 'humidity': ratio = raw / 100;             break;
-    case 'dust':     ratio = raw / 150;             break;
-    case 'co2':      ratio = (raw - 400) / 1600;   break;
+    case 'temp':     ratio = raw / 40;            break;
+    case 'humidity': ratio = raw / 100;           break;
+    case 'dust':     ratio = raw / 150;           break;
+    case 'co2':      ratio = (raw - 400) / 1600; break;
     default:         ratio = raw / 100;
   }
-  return Math.min(Math.max(ratio * 100, 0), 100);
+  return Math.min(Math.max(ratio, 0), 1);
 };
 
-const getGaugeColor = (pct: number) => {
-  if (pct <= 40) return GAUGE_GOOD;
-  if (pct <= 70) return GAUGE_MID;
-  return GAUGE_HIGH;
-};
+// 말풍선 메시지: "{subject} {highlight}" + 두 줄 안내
+interface HeroMessage {
+  subject: string;
+  highlight: string;
+  body: string;
+}
 
-const getAlerts = (sensors: SensorData[]): string[] => {
-  const temp     = sensors.find(s => s.key === 'temp');
-  const humidity = sensors.find(s => s.key === 'humidity');
-  const co2      = sensors.find(s => s.key === 'co2');
-  const dust     = sensors.find(s => s.key === 'dust');
+const getHeroMessages = (sensors: SensorData[]): HeroMessage[] => {
+  const get = (key: SensorData['key']) => sensors.find(s => s.key === key)?.rawValue;
+  const temp = get('temp');
+  const humidity = get('humidity');
+  const co2 = get('co2');
+  const dust = get('dust');
 
-  const messages: string[] = [];
-
-  if (temp) {
-    if (temp.rawValue > 30)      messages.push('실내 온도가 높으니 냉방을 켜 주세요!');
-    else if (temp.rawValue < 18) messages.push('실내 온도가 낮으니 난방을 켜 주세요!');
+  const messages: HeroMessage[] = [];
+  if (temp !== undefined) {
+    if (temp > 30)      messages.push({ subject: '온도가', highlight: '높아요!', body: '냉방을 켜서 실내를\n시원하게 해주세요!' });
+    else if (temp < 18) messages.push({ subject: '온도가', highlight: '낮아요!', body: '난방을 켜서 실내를\n따뜻하게 해주세요!' });
   }
-  if (humidity) {
-    if (humidity.rawValue > 70)      messages.push('습도가 높으니 제습기를 사용하세요!');
-    else if (humidity.rawValue < 30) messages.push('습도가 낮으니 가습기를 사용하세요!');
+  if (humidity !== undefined) {
+    if (humidity > 70)      messages.push({ subject: '습도가', highlight: '높아요!', body: '창문을 열고 환기\n시켜주세요!!' });
+    else if (humidity < 30) messages.push({ subject: '습도가', highlight: '낮아요!', body: '가습기를 틀어\n습도를 올려주세요!' });
   }
-  if (co2 && co2.rawValue > 1000)  messages.push('CO₂ 농도가 높으니 환기를 해보세요!');
-  if (dust && dust.rawValue > 80)  messages.push('미세먼지가 나쁘니 공기청정기를 켜 주세요!');
-
-  if (messages.length === 0) messages.push('실내 환경이 쾌적합니다 😊');
+  if (co2 !== undefined && co2 > 1000) messages.push({ subject: 'CO₂가', highlight: '높아요!', body: '창문을 열고 환기\n시켜주세요!!' });
+  if (dust !== undefined && dust > 80) messages.push({ subject: '미세먼지가', highlight: '나빠요!', body: '공기청정기를\n켜 주세요!' });
 
   return messages;
 };
 
-const getStatusImage = (sensors: SensorData[]): ImageSourcePropType => {
-  const temp     = sensors.find(s => s.key === 'temp');
-  const humidity = sensors.find(s => s.key === 'humidity');
-  const co2      = sensors.find(s => s.key === 'co2');
-  const dust     = sensors.find(s => s.key === 'dust');
+const NORMAL_MESSAGE: HeroMessage = { subject: '환경이', highlight: '쾌적해요!', body: '지금처럼 바른 자세를\n유지해 주세요!' };
 
-  if (temp     && temp.rawValue     > 30)   return statusImages.temp_high;
-  if (temp     && temp.rawValue     < 18)   return statusImages.temp_low;
-  if (co2      && co2.rawValue      > 1000) return statusImages.co2_high;
-  if (dust     && dust.rawValue     > 80)   return statusImages.dust_bad;
-  if (humidity && humidity.rawValue > 70)   return statusImages.humid_high;
-  if (humidity && humidity.rawValue < 30)   return statusImages.humid_low;
-  return statusImages.normal;
+// ─── 오늘의 기록 (자세 습관 도넛차트) ──────────────────────
+// TODO: 자세 습관 통계 API가 아직 없어 임시(mock) 데이터입니다.
+// Figma 도넛은 12시 방향부터 시계방향으로 고정 → 턱괴기 → 비대칭 → 졸음 순서
+const RECORD_SEGMENTS = [
+  { label: '고정',   count: 1, color: '#EF5350' },
+  { label: '턱괴기', count: 4, color: '#F4923C' },
+  { label: '비대칭', count: 2, color: '#F4B740' },
+  { label: '졸음',   count: 3, color: TEAL },
+];
+// 범례는 Figma 배치(졸음·고정 / 턱괴기·비대칭) 순서
+const LEGEND_ORDER = ['졸음', '고정', '턱괴기', '비대칭'];
+const RECORD_TOTAL = RECORD_SEGMENTS.reduce((sum, seg) => sum + seg.count, 0);
+
+const polar = (cx: number, cy: number, r: number, deg: number) => {
+  const rad = ((deg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 };
 
-// ─── 작은 게이지 바 ────────────────────────────────────────
-const MiniGaugeBar: React.FC<{ value: number }> = ({ value }) => (
-  <View style={gs.track}>
-    <View style={[gs.fill, { width: `${value}%` as any, backgroundColor: getGaugeColor(value) }]} />
-  </View>
-);
+// Figma Donut: 바깥 반지름 37.5, 안쪽 반지름 18.75, 조각 사이 흰색 1.5 테두리
+const DonutChart: React.FC<{ size: number }> = ({ size }) => {
+  const c = 38.25;
+  const rOut = 37.5;
+  const rIn = 18.75;
+  let angle = 0;
 
-const gs = StyleSheet.create({
-  track: {
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: GAUGE_BG,
-    overflow: 'hidden',
-    marginTop: 4,
-  },
-  fill: { height: '100%', borderRadius: 3 },
-});
+  return (
+    <Svg width={size} height={size} viewBox="0 0 76.5 76.5">
+      <G>
+        {RECORD_SEGMENTS.map(seg => {
+          const sweep = (seg.count / RECORD_TOTAL) * 360;
+          const start = angle;
+          const end = angle + sweep;
+          angle = end;
+          const large = sweep > 180 ? 1 : 0;
+          const o1 = polar(c, c, rOut, start);
+          const o2 = polar(c, c, rOut, end);
+          const i1 = polar(c, c, rIn, end);
+          const i2 = polar(c, c, rIn, start);
+          const d = [
+            `M${o1.x} ${o1.y}`,
+            `A${rOut} ${rOut} 0 ${large} 1 ${o2.x} ${o2.y}`,
+            `L${i1.x} ${i1.y}`,
+            `A${rIn} ${rIn} 0 ${large} 0 ${i2.x} ${i2.y}`,
+            'Z',
+          ].join(' ');
+          return <Path key={seg.label} d={d} fill={seg.color} stroke={WHITE} strokeWidth={1.5} />;
+        })}
+      </G>
+    </Svg>
+  );
+};
 
 // ─── 메인 ──────────────────────────────────────────────────
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const [activeTab, setActiveTab]         = useState<'report' | 'home'>('home');
+  const F = useFigmaScale(); // 전체 폭 기준 (배경 사진, 사이드바)
+  const { width } = useWindowDimensions();
+  const k = (width - SIDE_MARGIN * 2) / CONTENT_WIDTH;
+  const f = (v: number) => v * k; // 본문 기준 (좌우 여백 적용)
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [sensors, setSensors] = useState<SensorData[]>([
-    { label: '온도', key: 'temp',     rawValue: 0, unit: '°C'  },
-    { label: '습도', key: 'humidity', rawValue: 0, unit: '%'   },
-    { label: '미세', key: 'dust',     rawValue: 0, unit: 'μg'  },
-    { label: 'CO₂', key: 'co2',      rawValue: 0, unit: 'ppm' },
+  // TODO: API 임시 비활성화 — 목업 고정값 사용. 복구 시 아래처럼 useEffect에서 fetchEnv 재구성:
+  // const data = await getLatestEnv(1); setSensors([...]);
+  const [sensors] = useState<SensorData[]>([
+    { label: '온도',       key: 'temp',     rawValue: 24,  unit: '°C'    },
+    { label: '습도',       key: 'humidity', rawValue: 43,  unit: '%'     },
+    { label: '미세먼지',   key: 'dust',     rawValue: 18,  unit: '㎍/㎥' },
+    { label: '이산화탄소', key: 'co2',      rawValue: 742, unit: 'ppm'   },
   ]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError]         = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchEnv = async () => {
-      try {
-        setError(null);
-        const data = await getLatestEnv(1);
-        setSensors([
-          { label: '온도', key: 'temp',     rawValue: data.temp,  unit: '°C'  },
-          { label: '습도', key: 'humidity', rawValue: data.humid, unit: '%'   },
-          { label: '미세', key: 'dust',     rawValue: data.dust,  unit: 'μg'  },
-          { label: 'CO₂', key: 'co2',      rawValue: data.co2,   unit: 'ppm' },
-        ]);
-      } catch (e: any) {
-        setError(e.message);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const warnings = getHeroMessages(sensors);
+  const isNormal = warnings.length === 0;
+  const hero = isNormal ? NORMAL_MESSAGE : warnings[0];
+  const statusColor = isNormal ? GOOD : WARN;
+  const lastCheckedLabel = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-    fetchEnv();
-    const interval = setInterval(fetchEnv, 10000);
-    return () => clearInterval(interval);
-  }, []);
+  // Figma 좌표(px)를 그대로 받아 스케일 적용한 absolute 스타일
+  const at = (left: number, top: number, w?: number, h?: number) => ({
+    position: 'absolute' as const,
+    left: SIDE_MARGIN + f(left - CONTENT_LEFT),
+    top: f(top),
+    ...(w !== undefined && { width: f(w) }),
+    ...(h !== undefined && { height: f(h) }),
+  });
 
-  const alerts = getAlerts(sensors);
+  // 배경처럼 화면 전체 폭에 걸치는 요소용
+  const full = (left: number, top: number, w: number, h: number) => ({
+    position: 'absolute' as const,
+    left: F(left),
+    top: F(top),
+    width: F(w),
+    height: F(h),
+  });
 
-  const statusImage = getStatusImage(sensors);
+  const cardShadow = {
+    shadowColor: '#526A73',
+    shadowOffset: { width: f(3), height: f(3) },
+    shadowOpacity: 0.07,
+    shadowRadius: f(3),
+    elevation: 2,
+  };
+  const softShadow = {
+    shadowColor: '#54717A',
+    shadowOffset: { width: 0, height: f(3) },
+    shadowOpacity: 0.1,
+    shadowRadius: f(7.5),
+    elevation: 3,
+  };
+
+  const tileLefts = [16.5, 83.25, 150, 216.75];
 
   return (
-    <SafeAreaView style={s.safeArea}>
-      <Svg pointerEvents="none" style={s.radialBackground}>
-        <Defs>
-          <RadialGradient id="homeBgGradient" cx="10%" cy="10%" rx="90%" ry="90%">
-            <Stop offset="0%"   stopColor="#00C5B9" stopOpacity="0.18" />
-            <Stop offset="45%"  stopColor="#66D9CE" stopOpacity="0.08" />
-            <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="1"    />
-          </RadialGradient>
-        </Defs>
-        <Rect x="0" y="0" width="100%" height="100%" fill="url(#homeBgGradient)" />
-      </Svg>
+    <View style={s.root}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-      {/* ── 헤더 ── */}
-      <View style={s.header}>
-        <TouchableOpacity activeOpacity={0.7} onPress={() => setIsSidebarOpen(true)}>
-          <View style={s.menuLine} />
-          <View style={s.menuLine} />
-          <View style={s.menuLine} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={s.settingBtn}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('Notifications')}
-        >
-          <NoticeIcon width={20} height={20} />
-        </TouchableOpacity>
-      </View>
+      <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
+        <View style={{ height: f(585) }}>
+          {/* ── 배경 사진 (아래로 갈수록 배경색으로 페이드) ── */}
+          <Image source={HomeBgImage} style={full(0, -44.25, 300, 399.75)} resizeMode="cover" />
+          <LinearGradient
+            colors={['rgba(247,250,250,0)', BG]}
+            style={full(0, -35.25, 300, 381.75)}
+          />
+          <View style={[full(0, 346.5, 300, 20), { backgroundColor: BG }]} />
 
-      {/* ── 사이드바 ── */}
-      {isSidebarOpen && (
-        <View style={s.sidebarOverlay}>
-          <TouchableOpacity style={s.sidebarBackdrop} activeOpacity={1} onPress={() => setIsSidebarOpen(false)} />
-          <View style={s.sidebarPanel}>
-            <View style={s.sidebarProfile}>
-              <View style={s.avatarRing}>
-                <Image source={ProfileImage} style={s.avatarImage} />
-              </View>
-              <View style={s.profileNameRow}>
-                <Text style={s.profileName}>초코</Text>
-                <EditIcon width={16} height={16} style={s.profileEditIcon} />
-              </View>
-            </View>
-            <View style={s.sidebarMenu}>
-              <TouchableOpacity style={s.sidebarMenuItem} activeOpacity={0.8}>
-                <Text style={s.sidebarMenuText}>계정 설정</Text>
-                <ArrowIcon width={14} height={14} color={TEXT_S} />
-              </TouchableOpacity>
-              <TouchableOpacity style={s.sidebarMenuItem} activeOpacity={0.8}>
-                <Text style={s.sidebarMenuText}>알림 설정</Text>
-                <ArrowIcon width={14} height={14} color={TEXT_S} />
-              </TouchableOpacity>
-              <TouchableOpacity style={s.sidebarMenuItem} activeOpacity={0.8}>
-                <Text style={s.sidebarMenuText}>도움말</Text>
-                <ArrowIcon width={14} height={14} color={TEXT_S} />
-              </TouchableOpacity>
-            </View>
-            <View style={s.sidebarFooter}>
-              <TouchableOpacity style={s.logoutButton} activeOpacity={0.85} onPress={() => { unregisterFcmListeners(); }}>
-                <ExitIcon width={16} height={16} color="#F0808B" />
-                <Text style={s.logoutText}>Log Out</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
-
-      <ScrollView contentContainerStyle={s.content}>
-        {/* ── 상단: 센서 수치 (작게) ── */}
-        <View style={s.statsCard}>
-          {error ? (
-            <Text style={s.errorText}>{error}</Text>
-          ) : (
-            <View style={s.statsRow}>
-              {sensors.map((item, idx) => (
-                <View key={item.key} style={[s.statItem, idx < sensors.length - 1 && s.statItemBorder]}>
-                  <Text style={s.statLabel}>{item.label}</Text>
-                  <Text style={s.statValue}>
-                    {isLoading ? '-' : `${item.rawValue}${item.unit}`}
-                  </Text>
-                  <MiniGaugeBar value={isLoading ? 0 : toGaugeValue(item.key, item.rawValue)} />
-                </View>
+          {/* ── 헤더 ── */}
+          {/* 햄버거는 인사말 첫 줄과 같은 행에 두어 폰트 렌더링 차이와 무관하게 세로 중앙 정렬 */}
+          <View style={[at(0.75, 42), s.row]}>
+            <TouchableOpacity
+              style={[s.center, { width: f(30), height: f(21.75) }]}
+              activeOpacity={0.7}
+              hitSlop={8}
+              onPress={() => setIsSidebarOpen(true)}
+            >
+              {[0, 1, 2].map(i => (
+                <View
+                  key={i}
+                  style={{ width: f(13.5), height: f(1.5), backgroundColor: '#49454F', marginVertical: f(1.125) }}
+                />
               ))}
-            </View>
-          )}
-        </View>
+            </TouchableOpacity>
+            <Text style={{ marginLeft: f(1.5), fontSize: f(18), lineHeight: f(18 * LH), fontWeight: '700', color: TEXT }}>
+              안녕하세요, <Text style={{ color: TEAL }}>{USER_NICKNAME}</Text>님! ✨
+            </Text>
+          </View>
+          <Text style={[at(32.25, 66), { fontSize: f(12.75), lineHeight: f(12.75 * LH), fontWeight: '500', color: TEXT_S }]}>
+            오늘도 건강한 하루 되세요.
+          </Text>
+          <TouchableOpacity
+            style={at(255.75, 43.5)}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('Notifications')}
+          >
+            <BellBoxIcon width={f(36)} height={f(36)} />
+          </TouchableOpacity>
 
-        {/* ── 가운데: 상태 이미지 (크게) ── */}
-        <View style={s.imageCard}>
-          <Image source={statusImage} style={s.statusImage} resizeMode="contain" />
-        </View>
+          {/* ── 히어로: 마스코트 + 말풍선 + 상태 pill ── */}
+          <Image source={MascotImage} style={at(9, 96.75, 158.25, 146.25)} resizeMode="cover" />
+          <Image source={SpeechBubbleImage} style={at(116.25, 65.25, 189.75, 130.5)} resizeMode="cover" />
+          <Text style={[at(167.25, 103.5), { fontSize: f(15), lineHeight: f(15 * LH), fontWeight: '600', color: TEXT }]}>
+            {hero.subject} <Text style={{ color: TEAL }}>{hero.highlight}</Text>
+          </Text>
+          <Text style={[at(167.25, 126), { fontSize: f(12), lineHeight: f(12 * LH), fontWeight: '500', color: TEXT_S }]}>
+            {hero.body}
+          </Text>
 
-        {/* ── 하단: 알림 박스 ── */}
-        <View style={s.alertOuter}>
-          {alerts.map((msg, i) => (
-            <Text key={i} style={s.alertText}>{msg}</Text>
-          ))}
+          <View
+            style={[
+              at(162.75, 180.75, 63, 28.5),
+              s.row,
+              softShadow,
+              {
+                backgroundColor: WHITE,
+                borderWidth: f(0.75),
+                borderColor: BORDER_SOFT,
+                borderRadius: f(15),
+                paddingLeft: f(6.75),
+                gap: f(6.75),
+              },
+            ]}
+          >
+            <View style={{ width: f(13.5), height: f(13.5), borderRadius: f(6.75), backgroundColor: statusColor }} />
+            <Text style={{ fontSize: f(14.25), lineHeight: f(14.25 * LH), fontWeight: '600', color: statusColor }}>
+              {isNormal ? '정상' : '주의'}
+            </Text>
+          </View>
+          <Text style={[at(165, 213.75), { fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT_TIME }]}>
+            최근 분석 {lastCheckedLabel}
+          </Text>
+
+          {/* ── 작업 환경 카드 ── */}
+          <View
+            style={[
+              at(9, 247.5, 276.75, 122.25),
+              softShadow,
+              { backgroundColor: BG, borderWidth: f(0.75), borderColor: BORDER_SOFT, borderRadius: f(15) },
+            ]}
+          />
+          <CardEnvIcon width={f(13.5)} height={f(13.5)} style={at(21, 257.25)} />
+          <Text style={[at(43.5, 257.25), s.cardTitle, { fontSize: f(12), lineHeight: f(12 * LH) }]}>작업 환경</Text>
+
+          {sensors.map((item, idx) => {
+            const left = tileLefts[idx];
+            const Icon = sensorIcons[item.key];
+            const ratio = toGaugeRatio(item.key, item.rawValue);
+            return (
+              <View
+                key={item.key}
+                style={[
+                  at(left, 278.25, 61.5, 83.25),
+                  cardShadow,
+                  { backgroundColor: WHITE, borderWidth: f(0.75), borderColor: BORDER, borderRadius: f(12) },
+                ]}
+              >
+                <View style={{ position: 'absolute', left: f(2.25), top: f(6), width: f(18), height: f(18), alignItems: 'center' }}>
+                  <Icon width={item.key === 'temp' || item.key === 'co2' ? f(7.875) : f(18)} height={f(18)} />
+                </View>
+                <Text
+                  style={{ position: 'absolute', left: f(4.5), top: f(28.5), fontSize: f(12), lineHeight: f(12 * LH), fontWeight: '600', color: TEXT }}
+                  numberOfLines={1}
+                >
+                  {item.rawValue}{item.unit}
+                </Text>
+                <Text style={{ position: 'absolute', left: f(4.5), top: f(45), fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT_S }}>
+                  {item.label}
+                </Text>
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: f(6.75),
+                    top: f(62.25),
+                    width: f(45),
+                    height: f(11.25),
+                    borderRadius: f(11.25),
+                    backgroundColor: TEAL_LIGHT,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <View style={{ width: f(45) * ratio, height: '100%', borderRadius: f(11.25), backgroundColor: TEAL }} />
+                </View>
+              </View>
+            );
+          })}
+
+          {/* ── 오늘의 기록 ── */}
+          <View
+            style={[
+              at(9, 380.25, 135.75, 159.75),
+              cardShadow,
+              { backgroundColor: '#FDFDFD', borderWidth: f(0.75), borderColor: BORDER, borderRadius: f(12) },
+            ]}
+          />
+          <CardCalendarIcon width={f(13.5)} height={f(13.5)} style={at(21, 389.25)} />
+          <Text style={[at(43.5, 389.25), s.cardTitle, { fontSize: f(12), lineHeight: f(12 * LH) }]}>오늘의 기록</Text>
+          <View style={at(36, 412.5)}>
+            <DonutChart size={f(76.5)} />
+          </View>
+          <View style={[at(36.75, 413.25, 75, 75), s.center, s.row]}>
+            <Text style={{ fontSize: f(13.5), lineHeight: f(13.5 * LH), fontWeight: '500', color: TEXT }}>{RECORD_TOTAL}</Text>
+            <Text style={{ fontSize: f(10.5), lineHeight: f(10.5 * LH), fontWeight: '500', color: TEXT, marginTop: f(2) }}>회</Text>
+          </View>
+          {LEGEND_ORDER.map((label, idx) => {
+            const seg = RECORD_SEGMENTS.find(sg => sg.label === label)!;
+            const left = idx % 2 === 0 ? 22.5 : 84;
+            const top = idx < 2 ? 503.25 : 519.75;
+            return (
+              <View key={label} style={[at(left, top), s.row]}>
+                <View style={{ width: f(7.5), height: f(7.5), borderRadius: f(3.75), backgroundColor: seg.color, marginRight: f(4.5) }} />
+                <Text style={{ width: f(27), fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT }}>{seg.label}</Text>
+                <Text style={{ fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT }}>{seg.count}</Text>
+              </View>
+            );
+          })}
+
+          {/* ── 현재 자세 ── */}
+          <View
+            style={[
+              at(154.5, 380.25, 131.25, 159.75),
+              cardShadow,
+              { backgroundColor: '#FDFDFD', borderWidth: f(0.75), borderColor: BORDER, borderRadius: f(12) },
+            ]}
+          />
+          <Image source={PostureImage} style={at(162, 396, 105.75, 105.75)} resizeMode="cover" />
+          <CardSeatIcon width={f(13.5)} height={f(13.5)} style={at(163.5, 389.25)} />
+          <Text style={[at(183.75, 389.25), s.cardTitle, { fontSize: f(12), lineHeight: f(12 * LH) }]}>현재 자세</Text>
+          <Text style={[at(154.5, 508.5, 131.25), { fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '600', color: TEXT, textAlign: 'center' }]}>
+            앉은 자세가 안정적이에요.
+          </Text>
+          <Text style={[at(154.5, 521.25, 131.25), { fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '500', color: TEXT_S, textAlign: 'center' }]}>
+            가끔씩 스트레칭으로 더 건강하게!
+          </Text>
+
+          {/* ── 응원 배너 ── */}
+          <View
+            style={[
+              at(9, 552.75, 276.75, 24.75),
+              s.row,
+              { backgroundColor: TEAL_LIGHT, borderRadius: f(7.5), paddingLeft: f(9), paddingRight: f(9) },
+            ]}
+          >
+            <SproutIcon width={f(12)} height={f(12)} />
+            <Text style={{ marginLeft: f(6.75), flex: 1, fontSize: f(8.25), lineHeight: f(8.25 * LH), fontWeight: '500', color: TEXT }}>
+              “작은 습관이, 더 건강한 내일을 만들어요.”
+            </Text>
+            <Text style={{ fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '500', color: TEXT_S }}>Well-being Together</Text>
+          </View>
         </View>
       </ScrollView>
 
-      {/* ── 하단 탭바 ── */}
-      <View style={s.tabBar}>
-        <TouchableOpacity
-          style={[s.tabItem, activeTab === 'report' && s.tabItemActive]}
-          onPress={() => setActiveTab('report')}
-          activeOpacity={0.8}
-        >
-          <ReportIcon width={26} height={26} />
-          {activeTab === 'report' && <Text style={s.tabLabel}>Report</Text>}
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[s.tabItem, activeTab === 'home' && s.tabItemActive]}
-          onPress={() => setActiveTab('home')}
-          activeOpacity={0.8}
-        >
-          <HomeIcon width={22} height={22} />
-          {activeTab === 'home' && <Text style={s.tabLabel}>Home</Text>}
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+      <TabBar active="Home" />
+
+      {/* ── 사이드바 (Figma 홈화면 - 햄버거: 왼쪽에서 열리는 패널) ── */}
+      {isSidebarOpen && (
+        <View style={s.sidebarOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setIsSidebarOpen(false)} />
+          <View
+            style={[
+              s.sidebarPanel,
+              { top: F(42.75), width: F(153.75), borderTopRightRadius: F(24), borderBottomRightRadius: F(24) },
+            ]}
+          >
+            <Image
+              source={ProfileImage}
+              style={{ position: 'absolute', left: F(30), top: F(48), width: F(85.5), height: F(85.5), borderRadius: F(42.75) }}
+            />
+            <View style={[s.row, { position: 'absolute', left: F(59.25), top: F(144.75) }]}>
+              <Text style={{ fontSize: F(15), lineHeight: F(15 * LH), fontWeight: '700', color: TEXT_TIME }}>{USER_NICKNAME}</Text>
+              <EditIcon width={F(13.5)} height={F(13.5)} style={{ marginLeft: F(2.25) }} />
+            </View>
+            {[
+              { label: '계정설정', top: 204 },
+              { label: '알림설정', top: 249 },
+              { label: '도움말', top: 293.25 },
+            ].map(item => (
+              <TouchableOpacity
+                key={item.label}
+                style={[s.row, { position: 'absolute', left: F(22.5), top: F(item.top), width: F(107.25), height: F(18) }]}
+                activeOpacity={0.7}
+              >
+                <Text style={{ flex: 1, fontSize: F(12.75), lineHeight: F(12.75 * LH), fontWeight: '700', color: TEXT }}>{item.label}</Text>
+                <ChevronRightIcon width={F(18)} height={F(18)} />
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={[
+                s.center,
+                {
+                  position: 'absolute',
+                  left: F(18),
+                  top: F(501),
+                  width: F(117.75),
+                  height: F(41.25),
+                  borderRadius: F(12),
+                  borderWidth: F(0.75),
+                  borderColor: BORDER,
+                  backgroundColor: TEAL,
+                  shadowColor: '#526A73',
+                  shadowOffset: { width: F(3), height: F(3) },
+                  shadowOpacity: 0.07,
+                  shadowRadius: F(3),
+                  elevation: 2,
+                },
+              ]}
+              activeOpacity={0.85}
+              onPress={() => {}}
+            >
+              <Text style={{ fontSize: F(13.5), lineHeight: F(13.5 * LH), fontWeight: '800', color: WHITE }}>로그아웃</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </View>
   );
 };
 
 // ─── 스타일 ────────────────────────────────────────────────
 const s = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: WHITE },
-
-  radialBackground: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
-
-  // 헤더
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: STATUS_BAR_HEIGHT + 6,
-    paddingBottom: 12,
-  },
-  menuLine: {
-    width: 22,
-    height: 2,
-    borderRadius: 2,
-    backgroundColor: TEXT,
-    marginBottom: 5,
-  },
-  settingBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: TEAL,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: TEAL,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-  },
-
-  // 스크롤 컨텐츠
-  content: {
-    paddingHorizontal: 16,
-    paddingTop: 40,
-    paddingBottom: 36,
-    gap: 60,
-  },
-
-  // 상단 센서 수치 카드
-  statsCard: {
-    backgroundColor: WHITE,
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07,
-    shadowRadius: 8,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-    paddingTop: 8,
-  },
-  statItemBorder: {
-    borderRightWidth: 1,
-    borderRightColor: '#EEF5F3',
-  },
-  statLabel: {
-    fontSize: 10,
-    color: TEXT_S,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  statValue: {
-    fontSize: 18,
-    color: VALUE,
-    fontWeight: '800',
-    letterSpacing: 0.2,
-  },
-  errorText: {
-    fontSize: 13,
-    color: '#E06A6A',
-    textAlign: 'center',
-    paddingVertical: 8,
-  },
-
-  // 가운데 이미지 카드
-  imageCard: {
-    borderRadius: 22,
-    borderWidth: 2,
-    borderColor: TEAL_LIGHT,
-    backgroundColor: '#EFEFEF',
-    overflow: 'hidden',
-    height: 280,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07,
-    shadowRadius: 8,
-  },
-  statusImage: {
-    width: '90%',
-    height: '90%',
-  },
-
-  // 알림 박스
-  alertOuter: {
-    borderWidth: 2,
-    borderColor: TEAL_LIGHT,
-    borderRadius: 14,
-    padding: 22,
-    backgroundColor: WHITE,
-  },
-  alertText: {
-    fontSize: 16,
-    color: TEXT,
-    fontWeight: '800',
-    textAlign: 'center',
-    lineHeight: 32,
-    letterSpacing: 0.6,
-  },
-
-  // 탭바
-  tabBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 32,
-    paddingBottom: 16,
-    backgroundColor: WHITE,
-    borderTopWidth: 1,
-    borderTopColor: '#E0EEEB',
-  },
-  tabItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 18,
-    borderRadius: 24,
-    gap: 6,
-  },
-  tabItemActive: { backgroundColor: 'rgba(83, 157, 243, 0.37)' },
-  tabLabel: { fontSize: 14, color: '#539DF3', fontWeight: '700' },
+  root: { flex: 1, backgroundColor: BG },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  center: { justifyContent: 'center', alignItems: 'center' },
+  cardTitle: { fontWeight: '500', color: TEXT },
 
   // 사이드바
-  sidebarOverlay: {
-    ...StyleSheet.absoluteFill,
-    flexDirection: 'row-reverse',
-    zIndex: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-  },
-  sidebarBackdrop: { flex: 1, backgroundColor: 'transparent' },
+  sidebarOverlay: { ...StyleSheet.absoluteFill, zIndex: 20 },
   sidebarPanel: {
-    width: '60%',
-    height: '90%',
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    paddingTop: STATUS_BAR_HEIGHT + 24,
-    paddingHorizontal: 20,
-    paddingBottom: 24,
-    borderRadius: 24,
-    marginTop: STATUS_BAR_HEIGHT + 60,
+    position: 'absolute',
+    left: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(247, 255, 254, 0.985)',
     shadowColor: '#000',
     shadowOpacity: 0.12,
     shadowRadius: 12,
-    shadowOffset: { width: -4, height: 0 },
+    shadowOffset: { width: 4, height: 0 },
     elevation: 8,
   },
-  sidebarProfile: { alignItems: 'center', gap: 12 },
-  sidebarMenu: { marginTop: 20, borderTopWidth: 1, borderTopColor: '#E8E8E8' },
-  sidebarMenuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E8E8E8',
-  },
-  sidebarMenuText: {
-    fontSize: 15,
-    color: TEXT,
-    fontWeight: '600',
-    textAlign: 'center',
-    width: 96,
-  },
-  sidebarFooter: { marginTop: 'auto', alignItems: 'center' },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 14,
-    backgroundColor: '#F0F1F1',
-    borderRadius: 22,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    minWidth: 160,
-  },
-  logoutText: { fontSize: 14, color: '#F0808B', fontWeight: '700' },
-  avatarRing: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
-    backgroundColor: '#EEF5F3',
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  avatarImage: { width: 120, height: 120, borderRadius: 60 },
-  profileNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  profileName: { fontSize: 18, color: TEXT, fontWeight: '700' },
-  profileEditIcon: { marginTop: 2 },
 });
 
 export default HomeScreen;
