@@ -12,7 +12,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import ChevronLeftIcon from '../icon/chevron_left_auth.svg';
-import { useFigmaScale } from '../utils/figmaScale';
+import { useFitLayout, Gap } from '../utils/figmaScale';
 
 // Figma(Pretendard) 기본 줄 높이 — 안드로이드 기본 줄 높이가 더 커서 글자가 아래로 밀리는 것 방지
 const LH = 1.2;
@@ -25,6 +25,15 @@ const TEXT        = '#172033';
 const TEXT_S      = '#7B8794';
 const BORDER      = '#EDF2F2';
 const BORDER_SOFT = 'rgba(231,241,243,0.9)';
+
+// ─── 화면 맞춤 레이아웃 (Figma px 기준, 프레임 높이 639) ─────
+const BLOCKS = ['back', 'title', 'card', 'button'];
+const TOP: Gap = { design: 39.75, min: 0, max: 60, safeTop: true };
+const TITLE_GAP: Gap = { design: 50.25, min: 20, max: 80 };
+const CARD_GAP: Gap = { design: 42, min: 18, max: 64 };
+const BUTTON_GAP: Gap = { design: 20.25, min: 12, max: 30 };
+const BOTTOM: Gap = { design: 283, min: 16, max: 400 };
+const GAPS = [TOP, TITLE_GAP, CARD_GAP, BUTTON_GAP, BOTTOM];
 
 interface Props {
   title: string;
@@ -52,7 +61,7 @@ const FindAccountLayout: React.FC<Props> = ({
   onSubmit,
   onBack,
 }) => {
-  const f = useFigmaScale();
+  const { f, fx, areaHeight, bottomInset, onAreaLayout, measure, spacer, ready } = useFitLayout({ blocks: BLOCKS, gaps: GAPS, safeBottom: true });
   const smallShadow = {
     shadowColor: '#526A73',
     shadowOffset: { width: f(3), height: f(3) },
@@ -65,28 +74,39 @@ const FindAccountLayout: React.FC<Props> = ({
     <View style={s.root}>
       <Image
         source={require('../image/find_leaves_bg.png')}
-        style={{ position: 'absolute', left: 0, top: f(210), width: f(292.5), height: f(430.5) }}
+        // 잎사귀 배경은 화면 하단에 붙이고 폭 기준으로 비율 유지
+        style={{ position: 'absolute', left: 0, bottom: 0, width: fx(292.5), height: fx(430.5) }}
         resizeMode="cover"
       />
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.flex}>
-        <ScrollView contentContainerStyle={{ paddingBottom: f(40) }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          <TouchableOpacity onPress={onBack} hitSlop={8} style={{ marginTop: f(39.75), marginLeft: f(9), alignSelf: 'flex-start' }}>
+        {/* 본문 높이는 키보드가 열리기 전 화면 높이로 고정 — 키보드가 가리면 스크롤로 입력칸까지 이동 */}
+        <ScrollView
+          onLayout={onAreaLayout}
+          contentContainerStyle={{ height: areaHeight ?? undefined, paddingBottom: bottomInset, opacity: ready ? 1 : 0 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {spacer(TOP)}
+          <TouchableOpacity onLayout={measure('back')} onPress={onBack} hitSlop={8} style={{ marginLeft: fx(9), alignSelf: 'flex-start' }}>
             <ChevronLeftIcon width={f(25.5)} height={f(25.5)} />
           </TouchableOpacity>
 
-          <View style={{ marginTop: f(50.25), marginLeft: f(18) }}>
+          {spacer(TITLE_GAP)}
+          <View onLayout={measure('title')} style={{ marginLeft: fx(18) }}>
             <Text style={{ fontSize: f(22.5), lineHeight: f(22.5 * LH), fontWeight: '800', color: TEAL }}>{title}</Text>
             <Text style={{ marginTop: f(6.75), fontSize: f(12.75), lineHeight: f(12.75 * LH), fontWeight: '500', color: TEXT_S }}>{subtitle}</Text>
           </View>
 
+          {spacer(CARD_GAP)}
           {/* ── 입력 카드 ── */}
           <View
+            onLayout={measure('card')}
             style={{
-              marginTop: f(42),
-              marginHorizontal: f(20.25),
+              marginHorizontal: fx(20.25),
               height: f(87.75),
-              paddingLeft: f(17.25),
+              paddingLeft: fx(17.25),
+              paddingRight: fx(12),
               justifyContent: 'center',
               backgroundColor: CARD_BG,
               borderWidth: f(0.75),
@@ -104,7 +124,6 @@ const FindAccountLayout: React.FC<Props> = ({
                 s.row,
                 smallShadow,
                 {
-                  width: f(225),
                   height: f(41.25),
                   paddingLeft: f(12),
                   backgroundColor: '#FFFFFF',
@@ -127,14 +146,15 @@ const FindAccountLayout: React.FC<Props> = ({
             </View>
           </View>
 
+          {spacer(BUTTON_GAP)}
           <TouchableOpacity
+            onLayout={measure('button')}
             style={[
               s.center,
               smallShadow,
               {
-                marginTop: f(20.25),
-                marginLeft: f(35.25),
-                width: f(225),
+                marginLeft: fx(35.25),
+                marginRight: fx(34.5),
                 height: f(41.25),
                 borderRadius: f(12),
                 borderWidth: f(0.75),
@@ -147,6 +167,7 @@ const FindAccountLayout: React.FC<Props> = ({
           >
             <Text style={{ fontSize: f(13.5), lineHeight: f(13.5 * LH), fontWeight: '800', color: '#FFFFFF' }}>{buttonLabel}</Text>
           </TouchableOpacity>
+          {spacer(BOTTOM)}
         </ScrollView>
       </KeyboardAvoidingView>
     </View>

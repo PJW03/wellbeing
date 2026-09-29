@@ -12,7 +12,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import ChevronLeftIcon from '../icon/chevron_left_auth.svg';
-import { useFigmaScale } from '../utils/figmaScale';
+import { useFitLayout, Gap } from '../utils/figmaScale';
 // TODO: API 임시 비활성화 — 복구 시 아래 줄과 handleComplete 내부 주석 참고
 // import { signup } from '../api/auth';
 
@@ -29,6 +29,25 @@ const BORDER      = '#EDF2F2';
 const BORDER_SOFT = 'rgba(231,241,243,0.9)';
 const INACTIVE    = 'rgba(123,135,148,0.5)';
 
+// ─── 화면 맞춤 레이아웃 (Figma px 기준, 프레임 높이 639) ─────
+const BLOCKS = ['back', 'progress', 'title', 'card', 'button'];
+const TOP: Gap = { design: 39.75, min: 0, max: 60, safeTop: true };
+const PROGRESS_GAP: Gap = { design: 9.75, min: 4.5, max: 15 };
+const TITLE_GAP: Gap = { design: 31.5, min: 12, max: 48 };
+// 1단계(계정 만들기) / 2단계(기본 정보)는 Figma 간격이 다름
+const STEP_GAPS: Record<1 | 2, { card: Gap; button: Gap; bottom: Gap }> = {
+  1: {
+    card: { design: 28.5, min: 12, max: 40 },
+    button: { design: 26.25, min: 12, max: 36 },
+    bottom: { design: 52, min: 16, max: 300 },
+  },
+  2: {
+    card: { design: 21, min: 12, max: 40 },
+    button: { design: 24.75, min: 12, max: 36 },
+    bottom: { design: 188, min: 16, max: 300 },
+  },
+};
+
 interface Field {
   label: string;
   placeholder: string;
@@ -39,8 +58,13 @@ interface Field {
 }
 
 const SignupScreen: React.FC<any> = ({ navigation }) => {
-  const f = useFigmaScale();
   const [step, setStep] = useState<1 | 2>(1);
+  const gaps = STEP_GAPS[step];
+  const { f, fx, areaHeight, bottomInset, onAreaLayout, measure, spacer, ready } = useFitLayout({
+    blocks: BLOCKS,
+    gaps: [TOP, PROGRESS_GAP, TITLE_GAP, gaps.card, gaps.button, gaps.bottom],
+    safeBottom: true,
+  });
 
   const [id, setId] = useState('');
   const [password, setPassword] = useState('');
@@ -98,21 +122,30 @@ const SignupScreen: React.FC<any> = ({ navigation }) => {
     <View style={s.root}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.flex}>
-        <ScrollView contentContainerStyle={{ paddingBottom: f(40) }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        {/* 본문 높이는 키보드가 열리기 전 화면 높이로 고정 — 키보드가 가리면 스크롤로 입력칸까지 이동 */}
+        <ScrollView
+          onLayout={onAreaLayout}
+          contentContainerStyle={{ height: areaHeight ?? undefined, paddingBottom: bottomInset, opacity: ready ? 1 : 0 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {spacer(TOP)}
           {/* ── 뒤로가기 ── */}
-          <TouchableOpacity onPress={handleBack} hitSlop={8} style={{ marginTop: f(39.75), marginLeft: f(5.25), alignSelf: 'flex-start' }}>
+          <TouchableOpacity onLayout={measure('back')} onPress={handleBack} hitSlop={8} style={{ marginLeft: fx(5.25), alignSelf: 'flex-start' }}>
             <ChevronLeftIcon width={f(25.5)} height={f(25.5)} />
           </TouchableOpacity>
 
           {/* ── 진행 표시 (●──●) ── */}
-          <View style={[s.row, { alignSelf: 'center', marginTop: f(9.75) }]}>
+          {spacer(PROGRESS_GAP)}
+          <View onLayout={measure('progress')} style={[s.row, { alignSelf: 'center' }]}>
             <View style={{ width: f(9), height: f(9), borderRadius: f(4.5), backgroundColor: TEAL }} />
             <View style={{ width: f(44.25), height: f(2.25), backgroundColor: stepColor, marginHorizontal: f(-0.75) }} />
             <View style={{ width: f(9), height: f(9), borderRadius: f(4.5), backgroundColor: stepColor }} />
           </View>
 
           {/* ── 타이틀 ── */}
-          <View style={{ marginTop: f(31.5), marginLeft: f(18) }}>
+          {spacer(TITLE_GAP)}
+          <View onLayout={measure('title')} style={{ marginLeft: fx(18) }}>
             {step === 1 ? (
               <>
                 <Text style={{ fontSize: f(22.5), lineHeight: f(22.5 * LH), fontWeight: '700', color: TEXT }}>계정 만들기</Text>
@@ -133,15 +166,16 @@ const SignupScreen: React.FC<any> = ({ navigation }) => {
             )}
           </View>
 
+          {spacer(gaps.card)}
           {/* ── 입력 카드 ── */}
           <View
+            onLayout={measure('card')}
             style={{
               position: 'relative',
-              marginTop: step === 1 ? f(28.5) : f(21),
-              marginHorizontal: f(20.25),
+              marginHorizontal: fx(20.25),
               paddingTop: f(15.75),
               paddingBottom: f(21.75),
-              paddingHorizontal: f(15),
+              paddingHorizontal: fx(15),
               backgroundColor: CARD_BG,
               borderWidth: f(0.75),
               borderColor: BORDER_SOFT,
@@ -185,15 +219,16 @@ const SignupScreen: React.FC<any> = ({ navigation }) => {
             ))}
           </View>
 
+          {spacer(gaps.button)}
           {/* ── 다음 / 완료 버튼 ── */}
           <TouchableOpacity
+            onLayout={measure('button')}
             style={[
               s.center,
               smallShadow,
               {
-                marginTop: step === 1 ? f(26.25) : f(24.75),
-                marginLeft: f(35.25),
-                width: f(225),
+                marginLeft: fx(35.25),
+                marginRight: fx(34.5),
                 height: f(41.25),
                 borderRadius: f(12),
                 borderWidth: f(0.75),
@@ -206,6 +241,7 @@ const SignupScreen: React.FC<any> = ({ navigation }) => {
           >
             <Text style={{ fontSize: f(13.5), lineHeight: f(13.5 * LH), fontWeight: '800', color: '#FFFFFF' }}>{step === 1 ? '다음' : '완료'}</Text>
           </TouchableOpacity>
+          {spacer(gaps.bottom)}
         </ScrollView>
       </KeyboardAvoidingView>
     </View>

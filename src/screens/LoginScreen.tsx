@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,19 +10,26 @@ import {
   Platform,
   Image,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
-import { styles } from '../styles/loginScreenStyles';
+import { createLoginStyles } from '../styles/loginScreenStyles';
+import { useFitLayout, Gap } from '../utils/figmaScale';
 // TODO: API 임시 비활성화 — 복구 시 아래 두 줄과 handleLogin 내부 주석 참고
 // import { login } from '../api/auth';
 // import { registerFcmToken, setupForegroundNotification } from '../utils/fcm';
+
+// ─── 화면 맞춤 레이아웃 (Figma px 기준, 프레임 높이 639) ─────
+const BLOCKS = ['welcome', 'form'];
+const TOP: Gap = { design: 106.5, min: 0, max: 160, safeTop: true };
+const MASCOT_GAP: Gap = { design: 3, min: 3, max: 12 };
+const BOTTOM: Gap = { design: 128, min: 16, max: 250 };
+const GAPS = [TOP, MASCOT_GAP, BOTTOM];
 
 interface LoginScreenProps {
   onLoginSuccess?: () => void;
 }
 
-const PersonIcon = () => (
-  <Svg width={16} height={16} viewBox="0 0 18 18" fill="none">
+const PersonIcon: React.FC<{ size: number }> = ({ size }) => (
+  <Svg width={size} height={size} viewBox="0 0 18 18" fill="none">
     <Path
       d="M9 8.5C9.69223 8.5 10.3689 8.29473 10.9445 7.91015C11.5201 7.52556 11.9687 6.97894 12.2336 6.33939C12.4985 5.69985 12.5678 4.99612 12.4327 4.31719C12.2977 3.63825 11.9644 3.01461 11.4749 2.52513C10.9854 2.03564 10.3618 1.7023 9.68282 1.56725C9.00388 1.4322 8.30015 1.50152 7.66061 1.76642C7.02107 2.03133 6.47444 2.47993 6.08986 3.05551C5.70527 3.63108 5.5 4.30777 5.5 5C5.5 5.92826 5.86875 6.8185 6.52513 7.47487C7.1815 8.13125 8.07174 8.5 9 8.5ZM9 2.5C9.49445 2.5 9.9778 2.64662 10.3889 2.92133C10.8 3.19603 11.1205 3.58648 11.3097 4.04329C11.4989 4.50011 11.5484 5.00277 11.452 5.48773C11.3555 5.97268 11.1174 6.41814 10.7678 6.76777C10.4181 7.1174 9.97268 7.3555 9.48773 7.45196C9.00277 7.54843 8.50011 7.49892 8.04329 7.3097C7.58648 7.12048 7.19603 6.80005 6.92133 6.38893C6.64662 5.9778 6.5 5.49445 6.5 5C6.5 4.33696 6.76339 3.70108 7.23223 3.23223C7.70107 2.76339 8.33696 2.5 9 2.5Z"
       fill="#7B8794"
@@ -34,8 +41,8 @@ const PersonIcon = () => (
   </Svg>
 );
 
-const KeyIcon = () => (
-  <Svg width={16} height={16} viewBox="0 0 15 15" fill="none">
+const KeyIcon: React.FC<{ size: number }> = ({ size }) => (
+  <Svg width={size} height={size} viewBox="0 0 15 15" fill="none">
     <Path
       d="M5.41582 3.48653L3.14424 5.75811C2.98152 5.92083 2.98152 6.18464 3.14424 6.34736L3.31217 6.5153C3.47489 6.67802 3.73871 6.67802 3.90143 6.5153L6.17301 4.24372C6.33573 4.081 6.33573 3.81718 6.17301 3.65446L6.00507 3.48653C5.84236 3.32381 5.57854 3.32381 5.41582 3.48653Z"
       fill="#7B8794"
@@ -48,7 +55,14 @@ const KeyIcon = () => (
 );
 
 const LoginScreen: React.FC<LoginScreenProps & any> = ({ onLoginSuccess, navigation }) => {
-  const insets = useSafeAreaInsets();
+  const { f, fx, areaHeight, bottomInset, onAreaLayout, measure, spacer, ready } = useFitLayout({ blocks: BLOCKS, gaps: GAPS, safeBottom: true });
+  // 스타일 값은 393dp 기준 dp → Figma px(×0.75)로 환산해 스케일 적용
+  const d = (v: number) => f(v * 0.75);
+  const dx = (v: number) => fx(v * 0.75);
+  const scale = f(1);
+  const scaleX = fx(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const styles = useMemo(() => createLoginStyles(d, dx), [scale, scaleX]);
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
 
@@ -66,18 +80,16 @@ const LoginScreen: React.FC<LoginScreenProps & any> = ({ onLoginSuccess, navigat
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardAvoid}
       >
+        {/* 본문 높이는 키보드가 열리기 전 화면 높이로 고정 — 키보드가 가리면 스크롤로 입력칸까지 이동 */}
         <ScrollView
-          contentContainerStyle={[
-            styles.scrollContent,
-            styles.scrollContentTop,
-            { paddingTop: insets.top + 100 },
-          ]}
+          onLayout={onAreaLayout}
+          contentContainerStyle={{ height: areaHeight ?? undefined, paddingBottom: bottomInset, opacity: ready ? 1 : 0 }}
           showsVerticalScrollIndicator={false}
-          scrollEnabled={false}
+          keyboardShouldPersistTaps="handled"
         >
-        <View style={styles.cardScreenContent}>
+          {spacer(TOP)}
           {/* 인사말 */}
-          <View style={styles.welcomeSection}>
+          <View style={styles.welcomeSection} onLayout={measure('welcome')}>
             <Text style={styles.welcomeTitle}>
               다시 만나서{'\n'}
               <Text style={styles.welcomeAccent}>반가워요! 👋</Text>
@@ -85,69 +97,72 @@ const LoginScreen: React.FC<LoginScreenProps & any> = ({ onLoginSuccess, navigat
             <Text style={styles.welcomeSubtitle}>오늘도 건강한 하루를 시작해볼까요?</Text>
           </View>
 
-          {/* 마스코트 (카드가 아래쪽을 살짝 덮음) */}
-          <Image
-            source={require('../image/mascot_robot.png')}
-            style={styles.mascotImage}
-            resizeMode="contain"
-          />
+          {spacer(MASCOT_GAP)}
+          <View style={styles.cardScreenContent} onLayout={measure('form')}>
+            {/* 마스코트 (카드가 아래쪽을 살짝 덮음) */}
+            <Image
+              source={require('../image/mascot_robot.png')}
+              style={styles.mascotImage}
+              resizeMode="contain"
+            />
 
-          {/* 입력 카드 */}
-          <View style={styles.card}>
-            <View style={styles.cardInputRow}>
-              <View style={styles.cardInputIcon}>
-                <PersonIcon />
+            {/* 입력 카드 */}
+            <View style={styles.card}>
+              <View style={styles.cardInputRow}>
+                <View style={styles.cardInputIcon}>
+                  <PersonIcon size={d(16)} />
+                </View>
+                <TextInput
+                  style={styles.cardInput}
+                  placeholder="아이디를 입력해주세요."
+                  placeholderTextColor="#B0BFC2"
+                  value={userId}
+                  onChangeText={setUserId}
+                  autoCapitalize="none"
+                />
               </View>
-              <TextInput
-                style={styles.cardInput}
-                placeholder="아이디를 입력해주세요."
-                placeholderTextColor="#B0BFC2"
-                value={userId}
-                onChangeText={setUserId}
-                autoCapitalize="none"
-              />
-            </View>
 
-            <View style={styles.cardInputRow}>
-              <View style={styles.cardInputIcon}>
-                <KeyIcon />
+              <View style={styles.cardInputRow}>
+                <View style={styles.cardInputIcon}>
+                  <KeyIcon size={d(16)} />
+                </View>
+                <TextInput
+                  style={styles.cardInput}
+                  placeholder="비밀번호를 입력해주세요."
+                  placeholderTextColor="#B0BFC2"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                />
               </View>
-              <TextInput
-                style={styles.cardInput}
-                placeholder="비밀번호를 입력해주세요."
-                placeholderTextColor="#B0BFC2"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-              />
-            </View>
 
-            <TouchableOpacity
-              style={styles.cardButton}
-              onPress={handleLogin}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.cardButtonText}>로그인</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.cardButton}
+                onPress={handleLogin}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cardButtonText}>로그인</Text>
+              </TouchableOpacity>
 
-            <View style={styles.cardLinksRow}>
-              <TouchableOpacity onPress={() => navigation?.navigate('FindID')}>
-                <Text style={styles.cardLinkText}>아이디 찾기</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => navigation?.navigate('FindPassword')}>
-                <Text style={styles.cardLinkText}>비밀번호 찾기</Text>
-              </TouchableOpacity>
-            </View>
+              <View style={styles.cardLinksRow}>
+                <TouchableOpacity onPress={() => navigation?.navigate('FindID')}>
+                  <Text style={styles.cardLinkText}>아이디 찾기</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => navigation?.navigate('FindPassword')}>
+                  <Text style={styles.cardLinkText}>비밀번호 찾기</Text>
+                </TouchableOpacity>
+              </View>
 
-            <View style={styles.cardSignupRow}>
-              <Text style={styles.cardSignupText}>아직 계정이 없으신가요?</Text>
-              <TouchableOpacity onPress={() => navigation?.navigate('Signup')}>
-                <Text style={styles.cardSignupLink}>회원가입</Text>
-              </TouchableOpacity>
+              <View style={styles.cardSignupRow}>
+                <Text style={styles.cardSignupText}>아직 계정이 없으신가요?</Text>
+                <TouchableOpacity onPress={() => navigation?.navigate('Signup')}>
+                  <Text style={styles.cardSignupLink}>회원가입</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </ScrollView>
+          {spacer(BOTTOM)}
+        </ScrollView>
       </KeyboardAvoidingView>
     </View>
   );

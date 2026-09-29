@@ -3,11 +3,9 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   StatusBar,
   Image,
-  useWindowDimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
@@ -23,7 +21,7 @@ import SensorHumidityIcon from '../icon/sensor_humidity.svg';
 import SensorDustIcon from '../icon/sensor_dust.svg';
 import SproutIcon from '../icon/sprout.svg';
 import TabBar from '../components/TabBar';
-import { useFigmaScale } from '../utils/figmaScale';
+import { useFigmaScale, useFitLayout, Gap } from '../utils/figmaScale';
 import ProfileImage from '../image/image.png';
 import HomeBgImage from '../image/home_bg.png';
 import MascotImage from '../image/home_mascot.png';
@@ -53,6 +51,18 @@ const WHITE       = '#FFFFFF';
 const SIDE_MARGIN = 18;
 const CONTENT_LEFT = 9;
 const CONTENT_WIDTH = 276.75;
+
+// ─── 화면 맞춤 레이아웃 (Figma px 기준) ──────────────────────
+// 헤더+히어로 영역: Figma y 42(인사말) ~ 243(마스코트 끝). 배경 사진도 이 영역 위치를 기준으로 배치
+const HERO_TOP = 42;
+const HERO_HEIGHT = 201;
+const BLOCKS = ['hero', 'env', 'cards', 'banner'];
+const TOP: Gap = { design: HERO_TOP, min: 0, max: 60, safeTop: true };
+const ENV_GAP: Gap = { design: 4.5, min: 3, max: 12 };
+const CARDS_GAP: Gap = { design: 10.5, min: 6, max: 21 };
+const BANNER_GAP: Gap = { design: 12.75, min: 6, max: 21 };
+const BOTTOM: Gap = { design: 7.5, min: 6, max: 12 };
+const GAPS = [TOP, ENV_GAP, CARDS_GAP, BANNER_GAP, BOTTOM];
 
 // 유저 이름 — TODO: API 임시 비활성화, 복구 시 프로필 API의 닉네임으로 교체
 const USER_NICKNAME = '초코';
@@ -173,9 +183,19 @@ const DonutChart: React.FC<{ size: number }> = ({ size }) => {
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const F = useFigmaScale(); // 전체 폭 기준 (배경 사진, 사이드바)
-  const { width } = useWindowDimensions();
-  const k = (width - SIDE_MARGIN * 2) / CONTENT_WIDTH;
-  const f = (v: number) => v * k; // 본문 기준 (좌우 여백 적용)
+  const { f, fx, kWidth, k, width, onAreaLayout, measure, spacer, ready } = useFitLayout({
+    blocks: BLOCKS,
+    gaps: GAPS,
+    sideMargin: SIDE_MARGIN,
+    contentWidth: CONTENT_WIDTH,
+  });
+  // Figma x → 화면 x: 왼쪽 기준 요소는 본문 왼쪽 끝, 오른쪽 기준 요소(말풍선·알림·상태)는 본문 오른쪽 끝에 붙여서
+  // 화면이 넓거나 세로 때문에 크기가 줄어도 좌우 배치가 Figma처럼 유지되게 함
+  const X = (v: number) => SIDE_MARGIN + fx(v - CONTENT_LEFT);
+  const XR = (v: number) => width - SIDE_MARGIN - f(CONTENT_LEFT + CONTENT_WIDTH - v);
+  // 배경은 가로로 화면을 꽉 채우고, 세로는 본문과 같은 비율로 줄어들며 히어로 영역 위치를 따라감
+  const bgV = (v: number) => F(v) * (k / kWidth);
+  const [heroY, setHeroY] = useState(0);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   // TODO: API 임시 비활성화 — 목업 고정값 사용. 복구 시 아래처럼 useEffect에서 fetchEnv 재구성:
@@ -193,22 +213,22 @@ const HomeScreen: React.FC = () => {
   const statusColor = isNormal ? GOOD : WARN;
   const lastCheckedLabel = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-  // Figma 좌표(px)를 그대로 받아 스케일 적용한 absolute 스타일
-  const at = (left: number, top: number, w?: number, h?: number) => ({
+  // 히어로 영역 안 Figma 좌표 → absolute 스타일 (left는 화면 좌표, 세로는 히어로 영역 위쪽 기준)
+  const heroAt = (left: number, top: number, w?: number, h?: number) => ({
     position: 'absolute' as const,
-    left: SIDE_MARGIN + f(left - CONTENT_LEFT),
-    top: f(top),
+    left,
+    top: f(top - HERO_TOP),
     ...(w !== undefined && { width: f(w) }),
     ...(h !== undefined && { height: f(h) }),
   });
 
-  // 배경처럼 화면 전체 폭에 걸치는 요소용
-  const full = (left: number, top: number, w: number, h: number) => ({
+  // 배경처럼 화면 전체 폭에 걸치는 요소용 (세로는 히어로 영역 위치 기준)
+  const full = (top: number, h: number) => ({
     position: 'absolute' as const,
-    left: F(left),
-    top: F(top),
-    width: F(w),
-    height: F(h),
+    left: 0,
+    top: heroY + bgV(top - HERO_TOP),
+    width: F(300),
+    height: bgV(h),
   });
 
   const cardShadow = {
@@ -225,26 +245,41 @@ const HomeScreen: React.FC = () => {
     shadowRadius: f(7.5),
     elevation: 3,
   };
-
-  const tileLefts = [16.5, 83.25, 150, 216.75];
+  // 카드 좌상단 아이콘 + 제목 (카드 기준 Figma 오프셋)
+  const cardTitle = (Icon: React.FC<any>, title: string, left: number, titleLeft: number, top: number) => (
+    <>
+      <Icon width={f(13.5)} height={f(13.5)} style={{ position: 'absolute', left: f(left), top: f(top) }} />
+      <Text style={[s.cardTitle, { position: 'absolute', left: f(titleLeft), top: f(top), fontSize: f(12), lineHeight: f(12 * LH) }]}>
+        {title}
+      </Text>
+    </>
+  );
 
   return (
     <View style={s.root}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-      <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
-        <View style={{ height: f(585) }}>
-          {/* ── 배경 사진 (아래로 갈수록 배경색으로 페이드) ── */}
-          <Image source={HomeBgImage} style={full(0, -44.25, 300, 399.75)} resizeMode="cover" />
-          <LinearGradient
-            colors={['rgba(247,250,250,0)', BG]}
-            style={full(0, -35.25, 300, 381.75)}
-          />
-          <View style={[full(0, 346.5, 300, 20), { backgroundColor: BG }]} />
+      <View style={[s.body, { opacity: ready ? 1 : 0 }]} onLayout={onAreaLayout}>
+        {/* ── 배경 사진 (아래로 갈수록 배경색으로 페이드) ── */}
+        <Image source={HomeBgImage} style={full(-44.25, 399.75)} resizeMode="cover" />
+        <LinearGradient colors={['rgba(247,250,250,0)', BG]} style={full(-35.25, 381.75)} />
+        <View style={[full(346.5, 20), { backgroundColor: BG }]} />
 
-          {/* ── 헤더 ── */}
+        {spacer(TOP)}
+
+        {/* ── 헤더 + 히어로 (마스코트 · 말풍선 · 상태) ── */}
+        <View
+          style={{ height: f(HERO_HEIGHT) }}
+          onLayout={e => {
+            measure('hero')(e);
+            setHeroY(e.nativeEvent.layout.y);
+          }}
+        >
+          <Image source={MascotImage} style={heroAt(X(9), 96.75, 158.25, 146.25)} resizeMode="cover" />
+          <Image source={SpeechBubbleImage} style={heroAt(XR(116.25), 65.25, 189.75, 130.5)} resizeMode="cover" />
+
           {/* 햄버거는 인사말 첫 줄과 같은 행에 두어 폰트 렌더링 차이와 무관하게 세로 중앙 정렬 */}
-          <View style={[at(0.75, 42), s.row]}>
+          <View style={[heroAt(X(0.75), 42), s.row]}>
             <TouchableOpacity
               style={[s.center, { width: f(30), height: f(21.75) }]}
               activeOpacity={0.7}
@@ -262,30 +297,27 @@ const HomeScreen: React.FC = () => {
               안녕하세요, <Text style={{ color: TEAL }}>{USER_NICKNAME}</Text>님! ✨
             </Text>
           </View>
-          <Text style={[at(32.25, 66), { fontSize: f(12.75), lineHeight: f(12.75 * LH), fontWeight: '500', color: TEXT_S }]}>
+          <Text style={[heroAt(X(0.75) + f(31.5), 66), { fontSize: f(12.75), lineHeight: f(12.75 * LH), fontWeight: '500', color: TEXT_S }]}>
             오늘도 건강한 하루 되세요.
           </Text>
           <TouchableOpacity
-            style={at(255.75, 43.5)}
+            style={heroAt(XR(255.75), 43.5)}
             activeOpacity={0.7}
             onPress={() => navigation.navigate('Notifications')}
           >
             <BellBoxIcon width={f(36)} height={f(36)} />
           </TouchableOpacity>
 
-          {/* ── 히어로: 마스코트 + 말풍선 + 상태 pill ── */}
-          <Image source={MascotImage} style={at(9, 96.75, 158.25, 146.25)} resizeMode="cover" />
-          <Image source={SpeechBubbleImage} style={at(116.25, 65.25, 189.75, 130.5)} resizeMode="cover" />
-          <Text style={[at(167.25, 103.5), { fontSize: f(15), lineHeight: f(15 * LH), fontWeight: '600', color: TEXT }]}>
+          <Text style={[heroAt(XR(167.25), 103.5), { fontSize: f(15), lineHeight: f(15 * LH), fontWeight: '600', color: TEXT }]}>
             {hero.subject} <Text style={{ color: TEAL }}>{hero.highlight}</Text>
           </Text>
-          <Text style={[at(167.25, 126), { fontSize: f(12), lineHeight: f(12 * LH), fontWeight: '500', color: TEXT_S }]}>
+          <Text style={[heroAt(XR(167.25), 126), { fontSize: f(12), lineHeight: f(12 * LH), fontWeight: '500', color: TEXT_S }]}>
             {hero.body}
           </Text>
 
           <View
             style={[
-              at(162.75, 180.75, 63, 28.5),
+              heroAt(XR(162.75), 180.75, 63, 28.5),
               s.row,
               softShadow,
               {
@@ -303,128 +335,151 @@ const HomeScreen: React.FC = () => {
               {isNormal ? '정상' : '주의'}
             </Text>
           </View>
-          <Text style={[at(165, 213.75), { fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT_TIME }]}>
+          <Text style={[heroAt(XR(165), 213.75), { fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT_TIME }]}>
             최근 분석 {lastCheckedLabel}
           </Text>
+        </View>
 
-          {/* ── 작업 환경 카드 ── */}
-          <View
-            style={[
-              at(9, 247.5, 276.75, 122.25),
-              softShadow,
-              { backgroundColor: BG, borderWidth: f(0.75), borderColor: BORDER_SOFT, borderRadius: f(15) },
-            ]}
-          />
-          <CardEnvIcon width={f(13.5)} height={f(13.5)} style={at(21, 257.25)} />
-          <Text style={[at(43.5, 257.25), s.cardTitle, { fontSize: f(12), lineHeight: f(12 * LH) }]}>작업 환경</Text>
+        {spacer(ENV_GAP)}
 
-          {sensors.map((item, idx) => {
-            const left = tileLefts[idx];
-            const Icon = sensorIcons[item.key];
-            const ratio = toGaugeRatio(item.key, item.rawValue);
-            return (
-              <View
-                key={item.key}
-                style={[
-                  at(left, 278.25, 61.5, 83.25),
-                  cardShadow,
-                  { backgroundColor: WHITE, borderWidth: f(0.75), borderColor: BORDER, borderRadius: f(12) },
-                ]}
-              >
-                <View style={{ position: 'absolute', left: f(2.25), top: f(6), width: f(18), height: f(18), alignItems: 'center' }}>
-                  <Icon width={item.key === 'temp' || item.key === 'co2' ? f(7.875) : f(18)} height={f(18)} />
-                </View>
-                <Text
-                  style={{ position: 'absolute', left: f(4.5), top: f(28.5), fontSize: f(12), lineHeight: f(12 * LH), fontWeight: '600', color: TEXT }}
-                  numberOfLines={1}
-                >
-                  {item.rawValue}{item.unit}
-                </Text>
-                <Text style={{ position: 'absolute', left: f(4.5), top: f(45), fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT_S }}>
-                  {item.label}
-                </Text>
+        {/* ── 작업 환경 카드 (센서 타일 4개가 카드 폭을 나눠 가짐) ── */}
+        <View
+          onLayout={measure('env')}
+          style={[
+            softShadow,
+            {
+              marginHorizontal: SIDE_MARGIN,
+              height: f(122.25),
+              backgroundColor: BG,
+              borderWidth: f(0.75),
+              borderColor: BORDER_SOFT,
+              borderRadius: f(15),
+            },
+          ]}
+        >
+          {cardTitle(CardEnvIcon, '작업 환경', 12, 34.5, 9.75)}
+          <View style={[s.row, { position: 'absolute', left: fx(7.5), right: fx(7.5), top: f(30.75), height: f(83.25), gap: fx(5.25) }]}>
+            {sensors.map(item => {
+              const Icon = sensorIcons[item.key];
+              const ratio = toGaugeRatio(item.key, item.rawValue);
+              return (
                 <View
-                  style={{
-                    position: 'absolute',
-                    left: f(6.75),
-                    top: f(62.25),
-                    width: f(45),
-                    height: f(11.25),
-                    borderRadius: f(11.25),
-                    backgroundColor: TEAL_LIGHT,
-                    overflow: 'hidden',
-                  }}
+                  key={item.key}
+                  style={[
+                    cardShadow,
+                    { flex: 1, height: '100%', backgroundColor: WHITE, borderWidth: f(0.75), borderColor: BORDER, borderRadius: f(12) },
+                  ]}
                 >
-                  <View style={{ width: f(45) * ratio, height: '100%', borderRadius: f(11.25), backgroundColor: TEAL }} />
+                  <View style={{ position: 'absolute', left: f(2.25), top: f(6), width: f(18), height: f(18), alignItems: 'center' }}>
+                    <Icon width={item.key === 'temp' || item.key === 'co2' ? f(7.875) : f(18)} height={f(18)} />
+                  </View>
+                  <Text
+                    style={{ position: 'absolute', left: f(4.5), top: f(28.5), fontSize: f(12), lineHeight: f(12 * LH), fontWeight: '600', color: TEXT }}
+                    numberOfLines={1}
+                  >
+                    {item.rawValue}{item.unit}
+                  </Text>
+                  <Text style={{ position: 'absolute', left: f(4.5), top: f(45), fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT_S }}>
+                    {item.label}
+                  </Text>
+                  <View
+                    style={{
+                      position: 'absolute',
+                      left: fx(6.75),
+                      right: fx(9.75),
+                      top: f(62.25),
+                      height: f(11.25),
+                      borderRadius: f(11.25),
+                      backgroundColor: TEAL_LIGHT,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <View style={{ width: `${ratio * 100}%`, height: '100%', borderRadius: f(11.25), backgroundColor: TEAL }} />
+                  </View>
                 </View>
-              </View>
-            );
-          })}
-
-          {/* ── 오늘의 기록 ── */}
-          <View
-            style={[
-              at(9, 380.25, 135.75, 159.75),
-              cardShadow,
-              { backgroundColor: '#FDFDFD', borderWidth: f(0.75), borderColor: BORDER, borderRadius: f(12) },
-            ]}
-          />
-          <CardCalendarIcon width={f(13.5)} height={f(13.5)} style={at(21, 389.25)} />
-          <Text style={[at(43.5, 389.25), s.cardTitle, { fontSize: f(12), lineHeight: f(12 * LH) }]}>오늘의 기록</Text>
-          <View style={at(36, 412.5)}>
-            <DonutChart size={f(76.5)} />
-          </View>
-          <View style={[at(36.75, 413.25, 75, 75), s.center, s.row]}>
-            <Text style={{ fontSize: f(13.5), lineHeight: f(13.5 * LH), fontWeight: '500', color: TEXT }}>{RECORD_TOTAL}</Text>
-            <Text style={{ fontSize: f(10.5), lineHeight: f(10.5 * LH), fontWeight: '500', color: TEXT, marginTop: f(2) }}>회</Text>
-          </View>
-          {LEGEND_ORDER.map((label, idx) => {
-            const seg = RECORD_SEGMENTS.find(sg => sg.label === label)!;
-            const left = idx % 2 === 0 ? 22.5 : 84;
-            const top = idx < 2 ? 503.25 : 519.75;
-            return (
-              <View key={label} style={[at(left, top), s.row]}>
-                <View style={{ width: f(7.5), height: f(7.5), borderRadius: f(3.75), backgroundColor: seg.color, marginRight: f(4.5) }} />
-                <Text style={{ width: f(27), fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT }}>{seg.label}</Text>
-                <Text style={{ fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT }}>{seg.count}</Text>
-              </View>
-            );
-          })}
-
-          {/* ── 현재 자세 ── */}
-          <View
-            style={[
-              at(154.5, 380.25, 131.25, 159.75),
-              cardShadow,
-              { backgroundColor: '#FDFDFD', borderWidth: f(0.75), borderColor: BORDER, borderRadius: f(12) },
-            ]}
-          />
-          <Image source={PostureImage} style={at(162, 396, 105.75, 105.75)} resizeMode="cover" />
-          <CardSeatIcon width={f(13.5)} height={f(13.5)} style={at(163.5, 389.25)} />
-          <Text style={[at(183.75, 389.25), s.cardTitle, { fontSize: f(12), lineHeight: f(12 * LH) }]}>현재 자세</Text>
-          <Text style={[at(154.5, 508.5, 131.25), { fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '600', color: TEXT, textAlign: 'center' }]}>
-            앉은 자세가 안정적이에요.
-          </Text>
-          <Text style={[at(154.5, 521.25, 131.25), { fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '500', color: TEXT_S, textAlign: 'center' }]}>
-            가끔씩 스트레칭으로 더 건강하게!
-          </Text>
-
-          {/* ── 응원 배너 ── */}
-          <View
-            style={[
-              at(9, 552.75, 276.75, 24.75),
-              s.row,
-              { backgroundColor: TEAL_LIGHT, borderRadius: f(7.5), paddingLeft: f(9), paddingRight: f(9) },
-            ]}
-          >
-            <SproutIcon width={f(12)} height={f(12)} />
-            <Text style={{ marginLeft: f(6.75), flex: 1, fontSize: f(8.25), lineHeight: f(8.25 * LH), fontWeight: '500', color: TEXT }}>
-              “작은 습관이, 더 건강한 내일을 만들어요.”
-            </Text>
-            <Text style={{ fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '500', color: TEXT_S }}>Well-being Together</Text>
+              );
+            })}
           </View>
         </View>
-      </ScrollView>
+
+        {spacer(CARDS_GAP)}
+
+        {/* ── 오늘의 기록 · 현재 자세 (Figma 폭 비율대로 나눠 가짐) ── */}
+        <View onLayout={measure('cards')} style={[s.row, { marginHorizontal: SIDE_MARGIN, height: f(159.75), gap: fx(9.75) }]}>
+          <View
+            style={[
+              cardShadow,
+              { flex: 135.75, height: '100%', backgroundColor: '#FDFDFD', borderWidth: f(0.75), borderColor: BORDER, borderRadius: f(12) },
+            ]}
+          >
+            {cardTitle(CardCalendarIcon, '오늘의 기록', 12, 34.5, 9)}
+            <View style={{ position: 'absolute', left: 0, right: 0, top: f(32.25), alignItems: 'center' }}>
+              <DonutChart size={f(76.5)} />
+              <View style={[StyleSheet.absoluteFill, s.center, s.row]}>
+                <Text style={{ fontSize: f(13.5), lineHeight: f(13.5 * LH), fontWeight: '500', color: TEXT }}>{RECORD_TOTAL}</Text>
+                <Text style={{ fontSize: f(10.5), lineHeight: f(10.5 * LH), fontWeight: '500', color: TEXT, marginTop: f(2) }}>회</Text>
+              </View>
+            </View>
+            {LEGEND_ORDER.map((label, idx) => {
+              const seg = RECORD_SEGMENTS.find(sg => sg.label === label)!;
+              // Figma: 왼쪽 열은 카드 왼쪽에서 13.5, 오른쪽 열은 카드 폭의 약 55% 지점
+              const left = idx % 2 === 0 ? f(13.5) : '55%';
+              const top = idx < 2 ? 123 : 139.5;
+              return (
+                <View key={label} style={[s.row, { position: 'absolute', left, top: f(top) }]}>
+                  <View style={{ width: f(7.5), height: f(7.5), borderRadius: f(3.75), backgroundColor: seg.color, marginRight: f(4.5) }} />
+                  <Text style={{ width: f(27), fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT }}>{seg.label}</Text>
+                  <Text style={{ fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '500', color: TEXT }}>{seg.count}</Text>
+                </View>
+              );
+            })}
+          </View>
+
+          <View
+            style={[
+              cardShadow,
+              { flex: 131.25, height: '100%', backgroundColor: '#FDFDFD', borderWidth: f(0.75), borderColor: BORDER, borderRadius: f(12) },
+            ]}
+          >
+            <View style={{ position: 'absolute', left: 0, right: 0, top: f(15.75), alignItems: 'center' }}>
+              <Image source={PostureImage} style={{ width: f(105.75), height: f(105.75) }} resizeMode="cover" />
+            </View>
+            {cardTitle(CardSeatIcon, '현재 자세', 9, 29.25, 9)}
+            <Text style={{ position: 'absolute', left: 0, right: 0, top: f(128.25), fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '600', color: TEXT, textAlign: 'center' }}>
+              앉은 자세가 안정적이에요.
+            </Text>
+            <Text style={{ position: 'absolute', left: 0, right: 0, top: f(141), fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '500', color: TEXT_S, textAlign: 'center' }}>
+              가끔씩 스트레칭으로 더 건강하게!
+            </Text>
+          </View>
+        </View>
+
+        {spacer(BANNER_GAP)}
+
+        {/* ── 응원 배너 ── */}
+        <View
+          onLayout={measure('banner')}
+          style={[
+            s.row,
+            {
+              marginHorizontal: SIDE_MARGIN,
+              height: f(24.75),
+              backgroundColor: TEAL_LIGHT,
+              borderRadius: f(7.5),
+              paddingLeft: fx(9),
+              paddingRight: fx(9),
+            },
+          ]}
+        >
+          <SproutIcon width={f(12)} height={f(12)} />
+          <Text style={{ marginLeft: f(6.75), flex: 1, fontSize: f(8.25), lineHeight: f(8.25 * LH), fontWeight: '500', color: TEXT }}>
+            “작은 습관이, 더 건강한 내일을 만들어요.”
+          </Text>
+          <Text style={{ fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '500', color: TEXT_S }}>Well-being Together</Text>
+        </View>
+
+        {spacer(BOTTOM)}
+      </View>
 
       <TabBar active="Home" />
 
@@ -495,6 +550,7 @@ const HomeScreen: React.FC = () => {
 // ─── 스타일 ────────────────────────────────────────────────
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
+  body: { flex: 1, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center' },
   center: { justifyContent: 'center', alignItems: 'center' },
   cardTitle: { fontWeight: '500', color: TEXT },
