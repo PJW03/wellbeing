@@ -1,102 +1,108 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  StatusBar,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
-import { styles } from '../styles/loginScreenStyles';
-import Header from '../components/Header';
+import { Alert } from 'react-native';
+import UserLineIcon from '../icon/user_line_gray.svg';
+import MailIcon from '../icon/mail_outlined.svg';
+import FindAccountLayout from '../components/FindAccountLayout';
+import { sendResetPwCode, verifyResetPwCode, changePassword } from '../api/auth';
 
+type Step = 'id' | 'code' | 'newPw';
+
+// 1단계: 아이디 입력 → 인증코드 발송 / 2단계: 인증코드 확인 → 리셋 토큰 / 3단계: 새 비밀번호 저장
 const FindPasswordScreen: React.FC<any> = ({ navigation }) => {
-  const insets = useSafeAreaInsets();
+  const [step, setStep] = useState<Step>('id');
   const [userId, setUserId] = useState('');
-  const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [isCodeSent, setIsCodeSent] = useState(false);
-  const [isCodeVerified, setIsCodeVerified] = useState(false);
+  const [newPw, setNewPw] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSendCode = () => {
-    console.log('인증번호 전송', { userId, email });
-    // API 호출 시뮬레이션
-    setIsCodeSent(true);
+  const run = async (task: () => Promise<void>) => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      await task();
+    } catch (e: any) {
+      Alert.alert('비밀번호 찾기', e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleVerifyCode = () => {
-    console.log('인증번호 확인', { userId, email, code });
-    // API 호출 시뮬레이션
-    setIsCodeVerified(true);
+  const handleSubmit = () => {
+    if (step === 'id') {
+      if (!userId.trim()) return;
+      run(async () => {
+        await sendResetPwCode(userId.trim());
+        setStep('code');
+      });
+    } else if (step === 'code') {
+      if (!code.trim()) return;
+      run(async () => {
+        setResetToken(await verifyResetPwCode(userId.trim(), code.trim()));
+        setStep('newPw');
+      });
+    } else {
+      if (!newPw) return;
+      run(async () => {
+        await changePassword(resetToken, newPw);
+        Alert.alert('비밀번호 찾기', '비밀번호가 변경되었어요. 새 비밀번호로 로그인해주세요.', [
+          { text: '확인', onPress: () => navigation.goBack() },
+        ]);
+      });
+    }
   };
 
-  const handleResetPassword = () => {
-    console.log('비밀번호 재설정', { userId, email, code, newPassword });
-    navigation.goBack();
+  const handleBack = () => {
+    if (step === 'id') {
+      navigation.goBack();
+      return;
+    }
+    // 리셋 토큰은 10분만 유효하므로 뒤로 가면 인증부터 다시 진행
+    setCode('');
+    setNewPw('');
+    setResetToken('');
+    setStep(step === 'newPw' ? 'code' : 'id');
   };
 
+  const common = { title: '비밀번호 찾기', loading, onSubmit: handleSubmit, onBack: handleBack };
+
+  if (step === 'id') {
+    return (
+      <FindAccountLayout
+        {...common}
+        subtitle="가입한 아이디를 입력해주세요."
+        Icon={UserLineIcon}
+        placeholder="아이디를 입력해주세요."
+        value={userId}
+        onChangeText={setUserId}
+        buttonLabel="인증코드 받기"
+      />
+    );
+  }
+  if (step === 'code') {
+    return (
+      <FindAccountLayout
+        {...common}
+        subtitle="가입한 이메일로 받은 인증코드를 입력해주세요."
+        Icon={MailIcon}
+        placeholder="인증코드를 입력해주세요."
+        value={code}
+        onChangeText={setCode}
+        buttonLabel="인증하기"
+      />
+    );
+  }
   return (
-    <View style={styles.container}>
-      <Svg pointerEvents="none" style={styles.radialBackground}>
-        <Defs>
-          <RadialGradient id="bgGradient" cx="90%" cy="60%" rx="90%" ry="90%">
-            <Stop offset="0%" stopColor="#00C5B9" stopOpacity="0.38" />
-            <Stop offset="35%" stopColor="#66D9CE" stopOpacity="0.18" />
-            <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="1" />
-          </RadialGradient>
-        </Defs>
-        <Rect x="0" y="0" width="100%" height="100%" fill="url(#bgGradient)" />
-      </Svg>
-
-      <Header title="비밀번호 찾기" onBack={() => navigation.goBack()} />
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoid}>
-        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top }]} showsVerticalScrollIndicator={false}>
-          <View style={styles.content}>
-
-            <View style={styles.titleSection}>
-              <Text style={styles.title}>비밀번호 찾기</Text>
-              <View style={styles.titleUnderline} />
-            </View>
-
-            <View style={styles.inputSection}>
-              <TextInput style={styles.input} placeholder="아이디" placeholderTextColor="#B8B8B8" value={userId} onChangeText={setUserId} />
-              
-              <View style={styles.rowContainer}>
-                <TextInput style={styles.rowInput} placeholder="이메일" placeholderTextColor="#B8B8B8" value={email} onChangeText={setEmail} />
-                <TouchableOpacity style={styles.smallButton} onPress={handleSendCode} activeOpacity={0.8}>
-                  <Text style={styles.smallButtonText}>전송</Text>
-                </TouchableOpacity>
-              </View>
-
-              {isCodeSent && (
-                <View style={styles.rowContainer}>
-                  <TextInput style={styles.rowInput} placeholder="인증번호 6자리" placeholderTextColor="#B8B8B8" value={code} onChangeText={setCode} maxLength={6} />
-                  <TouchableOpacity style={styles.smallButton} onPress={handleVerifyCode} activeOpacity={0.8}>
-                    <Text style={styles.smallButtonText}>확인</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {isCodeVerified && (
-                <TextInput style={styles.input} placeholder="새 비밀번호" placeholderTextColor="#B8B8B8" value={newPassword} onChangeText={setNewPassword} secureTextEntry />
-              )}
-            </View>
-
-            <View style={styles.buttonSection}>
-              <TouchableOpacity style={styles.loginButton} onPress={isCodeVerified ? handleResetPassword : () => {}} activeOpacity={0.8} disabled={!isCodeVerified}>
-                <Text style={styles.loginButtonText}>{isCodeVerified ? '비밀번호 재설정' : '인증 필요'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </View>
+    <FindAccountLayout
+      {...common}
+      subtitle="새로 사용할 비밀번호를 입력해주세요."
+      Icon={UserLineIcon}
+      placeholder="새 비밀번호를 입력해주세요."
+      value={newPw}
+      onChangeText={setNewPw}
+      secureTextEntry
+      buttonLabel="비밀번호 변경"
+    />
   );
 };
 

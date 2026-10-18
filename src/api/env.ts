@@ -1,4 +1,4 @@
-import { BASE_URL } from '../config/api';
+import { ApiError, request } from './client';
 
 export interface EnvLatest {
   logNo: number;
@@ -12,24 +12,13 @@ export interface EnvLatest {
   motionDetected: boolean;
 }
 
+// 2. 메인화면용 최신 센서 데이터
 export async function getLatestEnv(deviceNo: number): Promise<EnvLatest> {
-  const url = `${BASE_URL}/api/env/latest?deviceNo=${deviceNo}`;
-  console.log('[ENV] 요청 URL:', url);
-
-  const res = await fetch(url);
-  console.log('[ENV] 응답 status:', res.status);
-
-  if (res.status === 404) {
-    console.warn('[ENV] 404 - 데이터 없음');
-    throw new Error('센서 데이터가 없습니다.');
+  try {
+    return await request<EnvLatest>('/api/env/latest', { query: { deviceNo } });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) throw new ApiError(404, e.code, '센서 데이터가 없습니다.');
+    if (e instanceof ApiError && e.code !== 'NETWORK_ERROR') throw new ApiError(e.status, e.code, '센서 데이터를 불러오지 못했습니다.');
+    throw e;
   }
-  if (!res.ok) {
-    const text = await res.text();
-    console.error('[ENV] 오류 응답:', text);
-    throw new Error('센서 데이터를 불러오지 못했습니다.');
-  }
-
-  const data = await res.json();
-  console.log('[ENV] 응답 데이터:', JSON.stringify(data));
-  return data;
 }
