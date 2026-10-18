@@ -13,8 +13,7 @@ import {
 } from 'react-native';
 import ChevronLeftIcon from '../icon/chevron_left_auth.svg';
 import { useFitLayout, Gap } from '../utils/figmaScale';
-// TODO: API 임시 비활성화 — 복구 시 아래 줄과 handleComplete 내부 주석 참고
-// import { signup } from '../api/auth';
+import { signup } from '../api/auth';
 
 // Figma(Pretendard) 기본 줄 높이 — 안드로이드 기본 줄 높이가 더 커서 글자가 아래로 밀리는 것 방지
 const LH = 1.2;
@@ -84,10 +83,23 @@ const SignupScreen: React.FC<any> = ({ navigation }) => {
     setStep(2);
   };
 
-  // TODO: API 임시 비활성화 — 버튼 클릭 시 바로 완료 화면으로 이동만 함. 복구 시 아래처럼 되돌리기:
-  // await signup({ userId: id.trim(), userPw: password, userEmail: email.trim(), nickname: nickname.trim() });
-  const handleComplete = () => {
-    navigation.replace('SignupComplete');
+  const [loading, setLoading] = useState(false);
+
+  const handleComplete = async () => {
+    if (loading) return;
+    if (!nickname.trim() || !email.trim()) {
+      Alert.alert('알림', '닉네임과 이메일을 입력해주세요.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await signup({ userId: id.trim(), userPw: password, userEmail: email.trim(), nickname: nickname.trim() });
+      navigation.replace('SignupComplete');
+    } catch (e: any) {
+      Alert.alert('회원가입 실패', e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleBack = () => {

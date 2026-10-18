@@ -1,5 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -19,20 +20,12 @@ import SensorDustIcon from '../icon/sensor_dust.svg';
 import SensorCo2Icon from '../icon/sensor_co2.svg';
 import TabBar from '../components/TabBar';
 import { useFitLayout, Gap } from '../utils/figmaScale';
-// TODO: API 임시 비활성화 — 복구 시 아래 줄과 env/notifications 관련 주석 참고
-// import { getLatestEnv, EnvLatest } from '../api/env';
-// import { getNotifications, Notification } from '../api/notification';
+import { getDailyReport, DailyReport } from '../api/report';
+import { useSession } from '../context/SessionContext';
+import { parseServerTime, toDateParam } from '../utils/time';
 
 // Figma(Pretendard) 기본 줄 높이 — 안드로이드 기본 줄 높이가 더 커서 글자가 아래로 밀리는 것 방지
 const LH = 1.2;
-
-interface Notification {
-  notiNo: number;
-  message: string;
-  detail: string;
-  category: string;
-  sentAt: string;
-}
 
 // ─── 색상 상수 (Figma 리포트-일별) ──────────────────────────
 const BG          = '#F7FAFA';
@@ -56,21 +49,13 @@ const GAPS = [TOP, INTRO_GAP, DAY_GAP, METRIC_GAP, ALERT_GAP, BOTTOM];
 
 const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
 
-const formatTime = (sentAt: string) => {
-  const d = new Date(sentAt);
+const formatTime = (sentAt: string | null) => {
+  const d = parseServerTime(sentAt);
+  if (!d) return '';
   const isAm = d.getHours() < 12;
   const hour12 = d.getHours() % 12 === 0 ? 12 : d.getHours() % 12;
   return `${isAm ? '오전' : '오후'} ${hour12}:${d.getMinutes().toString().padStart(2, '0')}`;
 };
-
-// TODO: API 임시 비활성화 — 목업 센서/알림 데이터
-const MOCK_ENV = { temp: 24, humid: 43, dust: 18, co2: 742 };
-const MOCK_DAY_NOTIFICATIONS: Notification[] = [
-  { notiNo: 1, message: '어깨 비대칭 주의!', detail: '스트레칭과 함께 바른 자세를 유지해요.', category: '자세', sentAt: '2026-01-01T10:12:00' },
-  { notiNo: 2, message: '미세먼지 나쁨! 창문을 닫아주세요.', detail: '지금은 실내 공기 관리가 중요해요.', category: '미세먼지', sentAt: '2026-01-01T13:35:00' },
-  { notiNo: 3, message: '습도가 높으니 환기를 해보세요!', detail: '쾌적한 실내 환경이 집중력을 높여줘요.', category: '습도', sentAt: '2026-01-01T15:20:00' },
-  { notiNo: 4, message: 'Co2 농도 up! 환기를 시켜주세요.', detail: '지금 환기하면 더 맑은 공기를 마실 수 있어요.', category: 'CO2', sentAt: '2026-01-01T17:18:00' },
-];
 
 const ReportDailyScreen: React.FC = () => {
   const navigation = useNavigation<any>();
@@ -79,20 +64,53 @@ const ReportDailyScreen: React.FC = () => {
   const dateISO: string | undefined = route.params?.dateISO;
   const date = useMemo(() => (dateISO ? new Date(dateISO) : new Date()), [dateISO]);
 
-  // TODO: API 임시 비활성화 — 복구 시 getLatestEnv(1) / getNotifications(1)로 교체
-  const env = MOCK_ENV;
-  const dayNotifications = MOCK_DAY_NOTIFICATIONS;
+  const { deviceNo } = useSession();
+  // 그날의 환경 평균값 + 알림 상세 리스트
+  const [env, setEnv] = useState<DailyReport | null>(null);
+  const [envFailed, setEnvFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getDailyReport(deviceNo, toDateParam(date))
+      .then(data => active && setEnv(data))
+      .catch(e => {
+        if (!active) return;
+        setEnvFailed(true);
+        Alert.alert('리포트', e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [deviceNo, date]);
+
+  const dayNotifications = useMemo(
+    () =>
+      [...(env?.alerts ?? [])].sort(
+        (a, b) => (parseServerTime(a.sentAt)?.getTime() ?? 0) - (parseServerTime(b.sentAt)?.getTime() ?? 0),
+      ),
+    [env],
+  );
+  // 값이 오기 전에는 "-" 표시
+  const show = (v: number | null | undefined, unit: string) => (v == null ? '-' : `${v}${unit}`);
 
   const metrics = [
-    { key: 'TEMP',     label: '온도',       value: `${env.temp}°C`,    ratio: env.temp / 40,             Icon: SensorTempIcon,     iconW: 7.875, iconH: 18 },
-    { key: 'HUMIDITY', label: '습도',       value: `${env.humid}%`,    ratio: env.humid / 100,           Icon: SensorHumidityIcon, iconW: 18,    iconH: 18 },
-    { key: 'DUST',     label: '미세먼지',   value: `${env.dust}㎍/㎥`, ratio: env.dust / 150,            Icon: SensorDustIcon,     iconW: 18,    iconH: 18 },
-    { key: 'CO2',      label: '이산화탄소', value: `${env.co2}ppm`,    ratio: (env.co2 - 400) / 1600,    Icon: SensorCo2Icon,      iconW: 20,    iconH: 20 },
+    { key: 'TEMP',     label: '온도',       value: show(env?.temp, '°C'),    ratio: (env?.temp ?? 0) / 40,          Icon: SensorTempIcon,     iconW: 7.875, iconH: 18 },
+    { key: 'HUMIDITY', label: '습도',       value: show(env?.humid, '%'),    ratio: (env?.humid ?? 0) / 100,        Icon: SensorHumidityIcon, iconW: 18,    iconH: 18 },
+    { key: 'DUST',     label: '미세먼지',   value: show(env?.dust, '㎍/㎥'), ratio: (env?.dust ?? 0) / 150,         Icon: SensorDustIcon,     iconW: 18,    iconH: 18 },
+    { key: 'CO2',      label: '이산화탄소', value: show(env?.co2, 'ppm'),    ratio: ((env?.co2 ?? 400) - 400) / 1600, Icon: SensorCo2Icon,      iconW: 20,    iconH: 20 },
   ];
 
-  const dayComment = env.humid > 70
+  const dayComment = !env
+    ? envFailed
+      ? '기록을 불러오지 못했어요'
+      : '기록을 불러오고 있어요'
+    : env.comment
+    ? env.comment
+    : env.temp == null && env.humid == null
+    ? '이 날은 기록이 없어요'
+    : (env.humid ?? 0) > 70
     ? '습한 하루였어요 💧'
-    : env.temp > 28
+    : (env.temp ?? 0) > 28
     ? '더운 하루였어요 ☀️'
     : '쾌적한 하루였어요 🌿';
 
@@ -205,7 +223,7 @@ const ReportDailyScreen: React.FC = () => {
           </View>
         ) : (
           dayNotifications.map(n => (
-            <View key={n.notiNo} style={[card, s.row, { height: f(34), marginBottom: f(5) }]}>
+            <View key={n.id} style={[card, s.row, { height: f(34), marginBottom: f(5) }]}>
               <Text style={{ width: f(49), paddingLeft: fx(7), fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '500', color: TEXT_S }}>
                 {formatTime(n.sentAt)}
               </Text>
@@ -214,7 +232,7 @@ const ReportDailyScreen: React.FC = () => {
               </View>
               <View style={{ flex: 1, marginLeft: fx(10) }}>
                 <Text style={{ fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '600', color: '#000' }} numberOfLines={1}>{n.message}</Text>
-                <Text style={{ marginTop: f(2), fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '600', color: GRAY }} numberOfLines={1}>{n.detail}</Text>
+                <Text style={{ marginTop: f(2), fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '600', color: GRAY }} numberOfLines={1}>{n.detail ?? ''}</Text>
               </View>
             </View>
           ))

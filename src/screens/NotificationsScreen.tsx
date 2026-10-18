@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -15,33 +16,11 @@ import FrownIcon from '../icon/noti_frown.svg';
 import CloudIcon from '../icon/noti_cloud.svg';
 import UserIcon from '../icon/noti_user.svg';
 import { useFigmaScale } from '../utils/figmaScale';
-// TODO: API 임시 비활성화 — 복구 시 아래 줄과 아래 mock 데이터 대신 fetchNotifications 사용
-// import { getNotifications, markNotificationRead, Notification } from '../api/notification';
+import { getNotifications, markNotificationRead, Notification } from '../api/notification';
+import { useSession } from '../context/SessionContext';
 
 // Figma(Pretendard) 기본 줄 높이 — 안드로이드 기본 줄 높이가 더 커서 글자가 아래로 밀리는 것 방지
 const LH = 1.2;
-
-interface Notification {
-  notiNo: number;
-  sensorType: string;
-  category: string;
-  message: string;
-  detail: string;
-  isRead: boolean;
-  sentAt: string;
-}
-
-const hoursAgo = (h: number) => new Date(Date.now() - h * 3600 * 1000).toISOString();
-const daysAgo = (d: number) => new Date(Date.now() - d * 24 * 3600 * 1000).toISOString();
-
-// TODO: API 임시 비활성화 — 목업 알림 데이터
-const MOCK_NOTIFICATIONS: Notification[] = [
-  { notiNo: 1, sensorType: 'HUMIDITY', category: '습도', message: '습도가 높으니 환기를 해보세요!', detail: '쾌적한 실내 환경이 집중력을 높여줘요.', isRead: false, sentAt: hoursAgo(2) },
-  { notiNo: 2, sensorType: 'TEMP', category: '온도', message: '실내 온도가 낮으니 난방을 켜 주세요.', detail: '적정 실내 온도는 20~24℃예요.', isRead: false, sentAt: hoursAgo(4) },
-  { notiNo: 3, sensorType: 'DUST', category: '미세먼지', message: '미세먼지 나쁨! 창문을 닫아주세요.', detail: '지금은 실내 공기 관리가 중요해요.', isRead: true, sentAt: daysAgo(2) },
-  { notiNo: 4, sensorType: 'CO2', category: 'CO2', message: 'CO2 농도 up! 환기를 시켜주세요.', detail: '지금 환기하면 더 맑은 공기를 마실 수 있어요.', isRead: true, sentAt: daysAgo(3) },
-  { notiNo: 5, sensorType: 'POSTURE', category: '자세', message: '어깨 비대칭 주의!', detail: '스트레칭과 함께 바른 자세를 유지해요.', isRead: true, sentAt: daysAgo(9) },
-];
 
 // ─── 색상 상수 (Figma 리포트-누적알림) ──────────────────────
 const BG         = '#F7FAFA';
@@ -95,13 +74,30 @@ interface Group {
 const NotificationsScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const f = useFigmaScale();
-  // TODO: API 임시 비활성화 — 목업 데이터 사용. 복구 시 getNotifications(1)로 fetch, markNotificationRead로 읽음 처리
-  const [notifications, setNotifications] = useState<Notification[]>(MOCK_NOTIFICATIONS);
+  const { user } = useSession();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const handleRead = (notiNo: number) => {
-    setNotifications(prev =>
-      prev.map(n => n.notiNo === notiNo ? { ...n, isRead: true } : n)
-    );
+  useEffect(() => {
+    let active = true;
+    getNotifications(user.userNo)
+      .then(data => active && setNotifications(data))
+      .catch(e => active && Alert.alert('누적 알림', e.message));
+    return () => {
+      active = false;
+    };
+  }, [user.userNo]);
+
+  // 화면에 먼저 읽음 표시 후 서버 반영 — 실패하면 되돌림
+  const handleRead = async (notiNo: number) => {
+    const setRead = (isRead: boolean) =>
+      setNotifications(prev => prev.map(n => (n.notiNo === notiNo ? { ...n, isRead } : n)));
+    setRead(true);
+    try {
+      await markNotificationRead(notiNo);
+    } catch (e: any) {
+      setRead(false);
+      Alert.alert('누적 알림', e.message);
+    }
   };
 
   // Figma 기준: 이번주 = 오늘을 뺀 최근 7일, 저번주 = 그 이전 7일
@@ -197,7 +193,7 @@ const NotificationsScreen: React.FC = () => {
               </View>
             ) : (
               group.items.map(item => {
-                const Icon = iconMap[item.sensorType.toUpperCase()] ?? UserIcon;
+                const Icon = iconMap[(item.sensorType ?? '').toUpperCase()] ?? UserIcon;
                 const timeLabel = group.key === 'today' ? formatTime(item.sentAt) : formatShortDate(new Date(item.sentAt));
                 return (
                   <TouchableOpacity
@@ -213,9 +209,11 @@ const NotificationsScreen: React.FC = () => {
                       <Text style={{ fontSize: f(9.75), lineHeight: f(9.75 * LH), fontWeight: '600', color: '#000' }} numberOfLines={1}>
                         {item.message}
                       </Text>
-                      <Text style={{ marginTop: f(3), fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '600', color: GRAY }} numberOfLines={1}>
-                        {item.detail}
-                      </Text>
+                      {!!item.detail && (
+                        <Text style={{ marginTop: f(3), fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '600', color: GRAY }} numberOfLines={1}>
+                          {item.detail}
+                        </Text>
+                      )}
                     </View>
                     <Text style={{ width: f(46.5), fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '500', color: GRAY }}>{timeLabel}</Text>
                     {!item.isRead && (

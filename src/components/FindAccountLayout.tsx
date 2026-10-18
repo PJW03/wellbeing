@@ -10,6 +10,7 @@ import {
   Platform,
   Image,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import ChevronLeftIcon from '../icon/chevron_left_auth.svg';
 import { useFitLayout, Gap } from '../utils/figmaScale';
@@ -42,7 +43,9 @@ interface Props {
   placeholder: string;
   value: string;
   onChangeText: (v: string) => void;
-  keyboardType?: 'default' | 'email-address';
+  keyboardType?: 'default' | 'email-address' | 'number-pad';
+  secureTextEntry?: boolean;
+  loading?: boolean;
   buttonLabel: string;
   onSubmit: () => void;
   onBack: () => void;
@@ -57,6 +60,8 @@ const FindAccountLayout: React.FC<Props> = ({
   value,
   onChangeText,
   keyboardType = 'default',
+  secureTextEntry = false,
+  loading = false,
   buttonLabel,
   onSubmit,
   onBack,
@@ -142,6 +147,7 @@ const FindAccountLayout: React.FC<Props> = ({
                 onChangeText={onChangeText}
                 autoCapitalize="none"
                 keyboardType={keyboardType}
+                secureTextEntry={secureTextEntry}
               />
             </View>
           </View>
@@ -165,7 +171,11 @@ const FindAccountLayout: React.FC<Props> = ({
             onPress={onSubmit}
             activeOpacity={0.8}
           >
-            <Text style={{ fontSize: f(13.5), lineHeight: f(13.5 * LH), fontWeight: '800', color: '#FFFFFF' }}>{buttonLabel}</Text>
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={{ fontSize: f(13.5), lineHeight: f(13.5 * LH), fontWeight: '800', color: '#FFFFFF' }}>{buttonLabel}</Text>
+            )}
           </TouchableOpacity>
           {spacer(BOTTOM)}
         </ScrollView>

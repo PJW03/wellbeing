@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -21,8 +22,9 @@ import SproutIcon from '../icon/sprout.svg';
 import MascotWaveImage from '../image/report_mascot_wave.png';
 import TabBar from '../components/TabBar';
 import { useFitLayout, Gap } from '../utils/figmaScale';
-// TODO: API 임시 비활성화 — 복구 시 아래 줄과 monthlyAlertCount 주석 참고
-// import { getNotifications, Notification } from '../api/notification';
+import { getMonthlyReport, MonthlyReport } from '../api/report';
+import { toMonthParam } from '../utils/time';
+import { useSession } from '../context/SessionContext';
 
 // Figma(Pretendard) 기본 줄 높이 — 안드로이드 기본 줄 높이가 더 커서 글자가 아래로 밀리는 것 방지
 const LH = 1.2;
@@ -47,18 +49,18 @@ const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDat
 const isSameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
-// TODO: 자세 통계 API가 아직 없어 임시(mock) 데이터입니다. 백엔드 연동 시 교체 필요.
-const POSTURE_TOP3 = [
-  { label: '장시간 고정', count: 12, Rank: Rank1Icon, color: '#EF5350' },
-  { label: '턱 괴기',     count: 8,  Rank: Rank2Icon, color: '#F4923C' },
-  { label: '어깨 비대칭', count: 6,  Rank: Rank3Icon, color: '#F4B740' },
+// TOP3 순위별 아이콘·막대 색
+const RANK_STYLES = [
+  { Rank: Rank1Icon, color: '#EF5350' },
+  { Rank: Rank2Icon, color: '#F4923C' },
+  { Rank: Rank3Icon, color: '#F4B740' },
 ];
-const POSTURE_ALERT_COUNT = 10;
-const POSTURE_ALERT_DELTA = '25%';
-const MASCOT_MOOD = '졸려요...';
-// TODO: API 임시 비활성화 — 목업 알림 수
-const MOCK_MONTHLY_ALERT_COUNT = 20;
-const ENV_ALERT_DELTA = '25%';
+
+// 지난달 대비 증감 — 퍼센트와 방향
+const compare = (current: number, previous: number) => {
+  if (previous === 0) return { percent: current === 0 ? 0 : 100, up: current > 0 };
+  return { percent: Math.round((Math.abs(current - previous) / previous) * 100), up: current > previous };
+};
 
 // ─── 화면 맞춤 레이아웃 (Figma px 기준) ──────────────────────
 // 캘린더 날짜 영역은 Figma의 5주 높이로 고정 — 4·6주인 달은 행 높이만 조정해 전체 레이아웃이 달마다 흔들리지 않게 함
@@ -77,8 +79,45 @@ const ReportScreen: React.FC = () => {
   const [viewDate, setViewDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => new Date());
 
-  // TODO: API 임시 비활성화 — 복구 시 getNotifications(1)로 fetch 후 viewDate 기준 월별 필터링
-  const monthlyAlertCount = MOCK_MONTHLY_ALERT_COUNT;
+  const { deviceNo } = useSession();
+  // 보고 있는 달 + 지난달(증감 비교용) 월간 리포트
+  const [report, setReport] = useState<MonthlyReport | null>(null);
+  const [prevReport, setPrevReport] = useState<MonthlyReport | null>(null);
+  const [reportFailed, setReportFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setReport(null);
+    setPrevReport(null);
+    setReportFailed(false);
+    const month = toMonthParam(viewDate);
+    const prevMonth = toMonthParam(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+    getMonthlyReport(deviceNo, month)
+      .then(data => active && setReport(data))
+      .catch(e => {
+        if (!active) return;
+        setReportFailed(true);
+        Alert.alert('리포트', e.message);
+      });
+    // 지난달 리포트는 비교용 — 실패하면 증감 없이 표시
+    getMonthlyReport(deviceNo, prevMonth)
+      .then(data => active && setPrevReport(data))
+      .catch(e => console.warn('[REPORT] 지난달', e.message));
+    return () => {
+      active = false;
+    };
+  }, [deviceNo, viewDate]);
+
+  const alertStats = useMemo(() => {
+    const env = report?.envAlertCount ?? 0;
+    const posture = report?.postureAlertCount ?? 0;
+    return {
+      env: { count: env, ...compare(env, prevReport?.envAlertCount ?? 0) },
+      posture: { count: posture, ...compare(posture, prevReport?.postureAlertCount ?? 0) },
+    };
+  }, [report, prevReport]);
+
+  const top3 = report?.top3 ?? [];
+  const mood = report?.comment ?? (reportFailed ? '불러오지 못했어요' : report ? '기록이 없어요' : '...');
 
   // 7칸씩 끊은 주 단위 배열
   const calendarWeeks = useMemo(() => {
@@ -137,9 +176,7 @@ const ReportScreen: React.FC = () => {
   const renderStatCard = (
     title: string,
     Icon: React.FC<any>,
-    value: number,
-    delta: string,
-    caption: string,
+    stat: { count: number; percent: number; up: boolean },
   ) => (
     <View style={[softCard, { flex: 1, height: f(74.25) }]}>
       <View style={[s.row, { position: 'absolute', left: f(6.75), top: f(4.5) }]}>
@@ -149,19 +186,19 @@ const ReportScreen: React.FC = () => {
         <Text style={{ marginLeft: f(11.25), fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '600', color: TEXT }}>{title}</Text>
       </View>
       <View style={[s.row, { position: 'absolute', left: f(16.5), top: f(31.5) }]}>
-        <Text style={{ width: f(47.25), fontSize: f(16.5), lineHeight: f(16.5 * LH), fontWeight: '700', color: TEXT }}>{value}회</Text>
+        <Text style={{ width: f(47.25), fontSize: f(16.5), lineHeight: f(16.5 * LH), fontWeight: '700', color: TEXT }}>{stat.count}회</Text>
         <View style={[s.row, s.center, { width: f(33.75), height: f(16.5), borderRadius: f(7.5), backgroundColor: TEAL_LIGHT }]}>
-          <ArrowDownSmallIcon width={f(10.5)} height={f(10.5)} />
-          <Text style={{ fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '700', color: TEAL }}>{delta}</Text>
+          <ArrowDownSmallIcon width={f(10.5)} height={f(10.5)} style={stat.up && { transform: [{ rotate: '180deg' }] }} />
+          <Text style={{ fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '700', color: TEAL }}>{stat.percent}%</Text>
         </View>
       </View>
       <Text style={{ position: 'absolute', left: f(16.5), top: f(57), fontSize: f(7.5), lineHeight: f(7.5 * LH), fontWeight: '500', color: TEXT_S }}>
-        {caption}
+        {stat.percent === 0 ? '지난달과 같아요.' : stat.up ? '지난달보다 늘었어요.' : '지난달보다 줄었어요!'}
       </Text>
     </View>
   );
 
-  const maxTop3 = Math.max(...POSTURE_TOP3.map(p => p.count));
+  const maxTop3 = Math.max(1, ...top3.map(p => p.count));
 
   return (
     <View style={s.root}>
@@ -278,8 +315,13 @@ const ReportScreen: React.FC = () => {
               <Text style={{ position: 'absolute', left: f(8.25), top: f(6), fontSize: f(9), lineHeight: f(9 * LH), fontWeight: '600', color: TEXT }}>
                 {viewDate.getMonth() + 1}월의 초코는..
               </Text>
-              <Text style={{ position: 'absolute', left: 0, right: 0, top: f(25.5), textAlign: 'center', fontSize: f(13.5), lineHeight: f(13.5 * LH), fontWeight: '700', color: TEXT }}>
-                <Text style={{ color: TEAL }}>“</Text>  {MASCOT_MOOD}  <Text style={{ color: TEAL }}>“</Text>
+              {/* AI 코멘트가 길 수 있어 카드 폭에 맞게 글자 크기를 줄임 */}
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                style={{ position: 'absolute', left: f(6), right: f(6), top: f(25.5), textAlign: 'center', fontSize: f(13.5), lineHeight: f(13.5 * LH), fontWeight: '700', color: TEXT }}
+              >
+                <Text style={{ color: TEAL }}>“</Text>  {mood}  <Text style={{ color: TEAL }}>“</Text>
               </Text>
             </View>
             <Image
@@ -293,8 +335,8 @@ const ReportScreen: React.FC = () => {
 
           {/* ── 통계 카드 2개 ── */}
           <View style={[s.row, { gap: fx(9), paddingLeft: fx(2.25) }]} onLayout={measure('stats')}>
-            {renderStatCard('환경 알림', BellSmallIcon, monthlyAlertCount, ENV_ALERT_DELTA, '지난달보다 줄었어요!')}
-            {renderStatCard('자세 알림', StatBarChartIcon, POSTURE_ALERT_COUNT, POSTURE_ALERT_DELTA, '꾸준히 좋아지고 있어요!')}
+            {renderStatCard('환경 알림', BellSmallIcon, alertStats.env)}
+            {renderStatCard('자세 알림', StatBarChartIcon, alertStats.posture)}
           </View>
 
           {spacer(GAP)}
@@ -305,16 +347,22 @@ const ReportScreen: React.FC = () => {
             <Text style={{ position: 'absolute', left: f(32.25), top: f(8.25), fontSize: f(10.5), lineHeight: f(10.5 * LH), fontWeight: '600', color: TEXT }}>
               주요 자세 행동 TOP 3
             </Text>
-            {POSTURE_TOP3.map((item, idx) => {
+            {top3.length === 0 && (
+              <Text style={{ position: 'absolute', left: 0, right: 0, top: f(44), textAlign: 'center', fontSize: f(8.25), lineHeight: f(8.25 * LH), fontWeight: '500', color: TEXT_S }}>
+                {reportFailed ? '기록을 불러오지 못했어요.' : report ? '이 달의 자세 기록이 없어요.' : ''}
+              </Text>
+            )}
+            {top3.map((item, idx) => {
               const top = 29.25 + idx * 18.75;
+              const { Rank, color } = RANK_STYLES[idx];
               // Figma 기준: 1위 막대가 트랙의 약 70%를 채움
               const ratio = (item.count / maxTop3) * 0.7;
               return (
-                <View key={item.label} style={[s.row, { position: 'absolute', left: fx(11.25), top: f(top), right: 0, height: f(12) }]}>
-                  <item.Rank width={f(12)} height={f(12)} />
+                <View key={`${idx}-${item.label}`} style={[s.row, { position: 'absolute', left: fx(11.25), top: f(top), right: 0, height: f(12) }]}>
+                  <Rank width={f(12)} height={f(12)} />
                   <Text style={{ width: f(51), marginLeft: f(9), fontSize: f(8.25), lineHeight: f(8.25 * LH), fontWeight: '600', color: TEXT }}>{item.label}</Text>
                   <View style={{ flex: 1, height: f(7.5), borderRadius: f(7.5), backgroundColor: 'rgba(123,135,148,0.3)', overflow: 'hidden' }}>
-                    <View style={{ width: `${ratio * 100}%`, height: '100%', borderRadius: f(7.5), backgroundColor: item.color }} />
+                    <View style={{ width: `${ratio * 100}%`, height: '100%', borderRadius: f(7.5), backgroundColor: color }} />
                   </View>
                   <Text style={{ width: f(27), marginLeft: f(16.5), fontSize: f(8.25), lineHeight: f(8.25 * LH), fontWeight: '600', color: TEXT }}>{item.count}회</Text>
                 </View>

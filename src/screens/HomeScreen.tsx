@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,9 @@ import {
   TouchableOpacity,
   StatusBar,
   Image,
+  AppState,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { G, Path } from 'react-native-svg';
 import EditIcon from '../icon/edit.svg';
@@ -27,9 +28,9 @@ import HomeBgImage from '../image/home_bg.png';
 import MascotImage from '../image/home_mascot.png';
 import SpeechBubbleImage from '../image/speech_bubble.png';
 import PostureImage from '../image/posture_sitting_figma.png';
-// TODO: API 임시 비활성화 — 복구 시 아래 두 줄과 useEffect의 fetchEnv 주석 참고
-// import { unregisterFcmListeners } from '../utils/fcm';
-// import { getLatestEnv } from '../api/env';
+import { getLatestEnv } from '../api/env';
+import { useSession } from '../context/SessionContext';
+import { parseServerTime } from '../utils/time';
 
 // Figma(Pretendard) 기본 줄 높이 — 안드로이드 기본 줄 높이가 더 커서 글자가 아래로 밀리는 것 방지
 const LH = 1.2;
@@ -64,8 +65,8 @@ const BANNER_GAP: Gap = { design: 12.75, min: 6, max: 21 };
 const BOTTOM: Gap = { design: 7.5, min: 6, max: 12 };
 const GAPS = [TOP, ENV_GAP, CARDS_GAP, BANNER_GAP, BOTTOM];
 
-// 유저 이름 — TODO: API 임시 비활성화, 복구 시 프로필 API의 닉네임으로 교체
-const USER_NICKNAME = '초코';
+// 센서 데이터 갱신 주기(ms)
+const ENV_POLL_INTERVAL = 10000;
 
 interface SensorData {
   label: string;
@@ -180,7 +181,11 @@ const DonutChart: React.FC<{ size: number }> = ({ size }) => {
 };
 
 // ─── 메인 ──────────────────────────────────────────────────
-const HomeScreen: React.FC = () => {
+interface HomeScreenProps {
+  onLogout?: () => void;
+}
+
+const HomeScreen: React.FC<HomeScreenProps> = ({ onLogout }) => {
   const navigation = useNavigation<any>();
   const F = useFigmaScale(); // 전체 폭 기준 (배경 사진, 사이드바)
   const { f, fx, kWidth, k, width, onAreaLayout, measure, spacer, ready } = useFitLayout({
@@ -198,20 +203,68 @@ const HomeScreen: React.FC = () => {
   const [heroY, setHeroY] = useState(0);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  // TODO: API 임시 비활성화 — 목업 고정값 사용. 복구 시 아래처럼 useEffect에서 fetchEnv 재구성:
-  // const data = await getLatestEnv(1); setSensors([...]);
-  const [sensors] = useState<SensorData[]>([
-    { label: '온도',       key: 'temp',     rawValue: 24,  unit: '°C'    },
-    { label: '습도',       key: 'humidity', rawValue: 43,  unit: '%'     },
-    { label: '미세먼지',   key: 'dust',     rawValue: 18,  unit: '㎍/㎥' },
-    { label: '이산화탄소', key: 'co2',      rawValue: 742, unit: 'ppm'   },
+  const { user, deviceNo } = useSession();
+  // 첫 응답 전에는 0으로 표시, 이후 ENV_POLL_INTERVAL마다 최신 센서값으로 갱신
+  const [sensors, setSensors] = useState<SensorData[]>([
+    { label: '온도',       key: 'temp',     rawValue: 0, unit: '°C'    },
+    { label: '습도',       key: 'humidity', rawValue: 0, unit: '%'     },
+    { label: '미세먼지',   key: 'dust',     rawValue: 0, unit: '㎍/㎥' },
+    { label: '이산화탄소', key: 'co2',      rawValue: 0, unit: 'ppm'   },
   ]);
+  const [measuredAt, setMeasuredAt] = useState<Date | null>(null);
 
-  const warnings = getHeroMessages(sensors);
+  // 화면이 보이고 앱이 포그라운드일 때만 폴링 — 다른 화면이 위에 쌓이거나 백그라운드로 가면 멈춤
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    let interval: ReturnType<typeof setInterval> | null = null;
+    // 이전 요청이 끝나기 전에는 새 요청을 보내지 않음 — 느린 응답이 나중에 도착해 최신 값을 덮어쓰는 것 방지
+    let inFlight = false;
+    const fetchEnv = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const data = await getLatestEnv(deviceNo);
+        if (!active) return;
+        setSensors([
+          { label: '온도',       key: 'temp',     rawValue: data.temp,  unit: '°C'    },
+          { label: '습도',       key: 'humidity', rawValue: data.humid, unit: '%'     },
+          { label: '미세먼지',   key: 'dust',     rawValue: data.dust,  unit: '㎍/㎥' },
+          { label: '이산화탄소', key: 'co2',      rawValue: data.co2,   unit: 'ppm'   },
+        ]);
+        setMeasuredAt(parseServerTime(data.mTime) ?? new Date());
+      } catch (e: any) {
+        // 주기적으로 다시 시도하므로 경고만 남김 (매번 Alert을 띄우면 10초마다 팝업이 뜸)
+        console.warn('[ENV]', e.message);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const start = () => {
+      if (interval) return;
+      fetchEnv();
+      interval = setInterval(fetchEnv, ENV_POLL_INTERVAL);
+    };
+    const stop = () => {
+      if (interval) clearInterval(interval);
+      interval = null;
+    };
+    if (AppState.currentState === 'active') start();
+    const sub = AppState.addEventListener('change', state => (state === 'active' ? start() : stop()));
+    return () => {
+      active = false;
+      stop();
+      sub.remove();
+    };
+  }, [deviceNo]));
+
+  // 첫 응답 전 0 값으로 "온도가 낮아요" 같은 경고가 뜨지 않게 함
+  const warnings = measuredAt ? getHeroMessages(sensors) : [];
   const isNormal = warnings.length === 0;
   const hero = isNormal ? NORMAL_MESSAGE : warnings[0];
   const statusColor = isNormal ? GOOD : WARN;
-  const lastCheckedLabel = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const lastCheckedLabel = measuredAt
+    ? measuredAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : '--:--';
 
   // 히어로 영역 안 Figma 좌표 → absolute 스타일 (left는 화면 좌표, 세로는 히어로 영역 위쪽 기준)
   const heroAt = (left: number, top: number, w?: number, h?: number) => ({
@@ -294,7 +347,7 @@ const HomeScreen: React.FC = () => {
               ))}
             </TouchableOpacity>
             <Text style={{ marginLeft: f(1.5), fontSize: f(18), lineHeight: f(18 * LH), fontWeight: '700', color: TEXT }}>
-              안녕하세요, <Text style={{ color: TEAL }}>{USER_NICKNAME}</Text>님! ✨
+              안녕하세요, <Text style={{ color: TEAL }}>{user.nickname}</Text>님! ✨
             </Text>
           </View>
           <Text style={[heroAt(X(0.75) + f(31.5), 66), { fontSize: f(12.75), lineHeight: f(12.75 * LH), fontWeight: '500', color: TEXT_S }]}>
@@ -498,18 +551,23 @@ const HomeScreen: React.FC = () => {
               style={{ position: 'absolute', left: F(30), top: F(48), width: F(85.5), height: F(85.5), borderRadius: F(42.75) }}
             />
             <View style={[s.row, { position: 'absolute', left: F(59.25), top: F(144.75) }]}>
-              <Text style={{ fontSize: F(15), lineHeight: F(15 * LH), fontWeight: '700', color: TEXT_TIME }}>{USER_NICKNAME}</Text>
+              <Text style={{ fontSize: F(15), lineHeight: F(15 * LH), fontWeight: '700', color: TEXT_TIME }}>{user.nickname}</Text>
               <EditIcon width={F(13.5)} height={F(13.5)} style={{ marginLeft: F(2.25) }} />
             </View>
             {[
-              { label: '계정설정', top: 204 },
-              { label: '알림설정', top: 249 },
+              { label: '계정설정', top: 204, route: 'AccountSettings' },
+              { label: '알림설정', top: 249, route: 'NotificationSettings' },
               { label: '도움말', top: 293.25 },
             ].map(item => (
               <TouchableOpacity
                 key={item.label}
                 style={[s.row, { position: 'absolute', left: F(22.5), top: F(item.top), width: F(107.25), height: F(18) }]}
                 activeOpacity={0.7}
+                onPress={() => {
+                  if (!item.route) return;
+                  setIsSidebarOpen(false);
+                  navigation.navigate(item.route);
+                }}
               >
                 <Text style={{ flex: 1, fontSize: F(12.75), lineHeight: F(12.75 * LH), fontWeight: '700', color: TEXT }}>{item.label}</Text>
                 <ChevronRightIcon width={F(18)} height={F(18)} />
@@ -536,7 +594,10 @@ const HomeScreen: React.FC = () => {
                 },
               ]}
               activeOpacity={0.85}
-              onPress={() => {}}
+              onPress={() => {
+                setIsSidebarOpen(false);
+                onLogout?.();
+              }}
             >
               <Text style={{ fontSize: F(13.5), lineHeight: F(13.5 * LH), fontWeight: '800', color: WHITE }}>로그아웃</Text>
             </TouchableOpacity>

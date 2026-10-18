@@ -9,13 +9,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { createLoginStyles } from '../styles/loginScreenStyles';
 import { useFitLayout, Gap } from '../utils/figmaScale';
-// TODO: API 임시 비활성화 — 복구 시 아래 두 줄과 handleLogin 내부 주석 참고
-// import { login } from '../api/auth';
-// import { registerFcmToken, setupForegroundNotification } from '../utils/fcm';
+import { login, User } from '../api/auth';
+import { registerFcmToken } from '../utils/fcm';
 
 // ─── 화면 맞춤 레이아웃 (Figma px 기준, 프레임 높이 639) ─────
 const BLOCKS = ['welcome', 'form'];
@@ -24,8 +25,8 @@ const MASCOT_GAP: Gap = { design: 3, min: 3, max: 12 };
 const BOTTOM: Gap = { design: 128, min: 16, max: 250 };
 const GAPS = [TOP, MASCOT_GAP, BOTTOM];
 
-interface LoginScreenProps {
-  onLoginSuccess?: () => void;
+export interface LoginScreenProps {
+  onLoginSuccess?: (token: string, user: User) => void;
 }
 
 const PersonIcon: React.FC<{ size: number }> = ({ size }) => (
@@ -66,11 +67,25 @@ const LoginScreen: React.FC<LoginScreenProps & any> = ({ onLoginSuccess, navigat
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
 
-  // TODO: API 임시 비활성화 — 버튼 클릭 시 바로 홈으로 이동만 함. 복구 시 아래처럼 되돌리기:
-  // const result = await login({ userId: userId.trim(), userPw: password });
-  // registerFcmToken(result.user.userId).then(() => setupForegroundNotification());
-  const handleLogin = () => {
-    onLoginSuccess?.();
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    if (loading) return;
+    if (!userId.trim() || !password) {
+      Alert.alert('로그인', '아이디와 비밀번호를 입력해주세요.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await login({ userId: userId.trim(), userPw: password });
+      onLoginSuccess?.(result.token, result.user);
+      // FCM 등록은 로그인 완료 후 백그라운드에서 처리
+      registerFcmToken(result.user.userId);
+    } catch (e: any) {
+      Alert.alert('로그인 실패', e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -141,7 +156,7 @@ const LoginScreen: React.FC<LoginScreenProps & any> = ({ onLoginSuccess, navigat
                 onPress={handleLogin}
                 activeOpacity={0.8}
               >
-                <Text style={styles.cardButtonText}>로그인</Text>
+                {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.cardButtonText}>로그인</Text>}
               </TouchableOpacity>
 
               <View style={styles.cardLinksRow}>
