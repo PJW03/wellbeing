@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- release 빌드는 기본적으로 http를 막으므로 API 서버(http)만 허용 -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">3.37.123.73</domain>
+    </domain-config>
+</network-security-config>
