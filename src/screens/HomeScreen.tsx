@@ -28,6 +28,16 @@ import HomeBgImage from '../image/home_bg.png';
 import MascotImage from '../image/home_mascot.png';
 import SpeechBubbleImage from '../image/speech_bubble.png';
 import PostureImage from '../image/posture_sitting_figma.png';
+import FaceNormal from '../image/face_normal.png';
+import FaceHumidLow from '../image/face_humid_low.png';
+import FaceHumidHigh from '../image/face_humid_high.png';
+import FaceTempHigh from '../image/face_temp_high.png';
+import FaceTempLow from '../image/face_temp_low.png';
+import FaceDustBad from '../image/face_dust_bad.png';
+import FaceCo2High from '../image/face_co2_high.png';
+import FaceName from '../image/face_name.png';
+import FacePostureWarn from '../image/face_posture_warn.png';
+import FacePostureBad from '../image/face_posture_bad.png';
 import { getLatestEnv } from '../api/env';
 import { useSession } from '../context/SessionContext';
 import { parseServerTime } from '../utils/time';
@@ -97,11 +107,63 @@ const toGaugeRatio = (key: string, raw: number): number => {
   return Math.min(Math.max(ratio, 0), 1);
 };
 
-// 말풍선 메시지: "{subject} {highlight}" + 두 줄 안내
+// ─── 로봇 표정 ─────────────────────────────────────────────
+// 자세·이름 표정은 아직 연결할 데이터가 없어 매핑만 해 둠
+const FACE_IMAGES = {
+  normal:      FaceNormal,
+  humidLow:    FaceHumidLow,
+  humidHigh:   FaceHumidHigh,
+  tempHigh:    FaceTempHigh,
+  tempLow:     FaceTempLow,
+  dustBad:     FaceDustBad,
+  co2High:     FaceCo2High,
+  name:        FaceName,
+  postureWarn: FacePostureWarn,
+  postureBad:  FacePostureBad,
+};
+type FaceKey = keyof typeof FACE_IMAGES;
+
+// 마스코트 이미지(home_mascot.png, 1305px 폭) 안 얼굴 화면 위치(px) — 이 위에 표정 이미지를 덮어씀
+const MASCOT_SRC_WIDTH = 1305;
+const FACE_SCREEN = { left: 416, top: 372, width: 566, height: 336, radius: 140 };
+// 표정 이미지(정사각형)를 화면 폭보다 약간 크게 깔고, 이목구비 중심(이미지 높이의 45.5%)을 화면 중앙에 맞춤
+const FACE_IMAGE_SCALE = 1.15;
+const FACE_CENTER_Y = 0.455;
+// 표정마다 원본 이목구비 크기·위치가 달라 기본 표정과 맞춰주는 보정값
+// scale: 추가 확대 배율, cx/cy: 화면 중앙에 올 표정 이미지 지점(이미지 크기 대비 비율)
+const FACE_ADJUST: Partial<Record<FaceKey, { scale: number; cx: number; cy: number }>> = {
+  postureWarn: { scale: 1, cx: 0.5, cy: 0.5 },
+};
+// 마스코트 원본 px → Figma px (히어로 마스코트 폭 158.25)
+const mascotPx = 158.25 / MASCOT_SRC_WIDTH;
+const faceSize = FACE_SCREEN.width * mascotPx * FACE_IMAGE_SCALE;
+// 얼굴 화면 안 표정 이미지 위치·크기 (Figma px)
+const faceRect = (key: FaceKey) => {
+  const { scale, cx, cy } = FACE_ADJUST[key] ?? { scale: 1, cx: 0.5, cy: FACE_CENTER_Y };
+  const size = faceSize * scale;
+  return {
+    left: FACE_SCREEN.width * mascotPx / 2 - size * cx,
+    top: FACE_SCREEN.height * mascotPx / 2 - size * cy,
+    size,
+  };
+};
+
+// 환경 알림 기준 (서버 알림 기준과 동일)
+const TH = {
+  tempHigh:  28,
+  tempLow:   18,
+  humidHigh: 65,
+  humidLow:  35,
+  co2High:   1000,
+  dustBad:   35,
+};
+
+// 말풍선 메시지: "{subject} {highlight}" + 두 줄 안내, face는 함께 보여줄 로봇 표정
 interface HeroMessage {
   subject: string;
   highlight: string;
   body: string;
+  face: FaceKey;
 }
 
 const getHeroMessages = (sensors: SensorData[]): HeroMessage[] => {
@@ -113,20 +175,20 @@ const getHeroMessages = (sensors: SensorData[]): HeroMessage[] => {
 
   const messages: HeroMessage[] = [];
   if (temp !== undefined) {
-    if (temp > 30)      messages.push({ subject: '온도가', highlight: '높아요!', body: '냉방을 켜서 실내를\n시원하게 해주세요!' });
-    else if (temp < 18) messages.push({ subject: '온도가', highlight: '낮아요!', body: '난방을 켜서 실내를\n따뜻하게 해주세요!' });
+    if (temp > TH.tempHigh)     messages.push({ subject: '온도가', highlight: '높아요!', body: '냉방을 켜서 실내를\n시원하게 해주세요!', face: 'tempHigh' });
+    else if (temp < TH.tempLow) messages.push({ subject: '온도가', highlight: '낮아요!', body: '난방을 켜서 실내를\n따뜻하게 해주세요!', face: 'tempLow' });
   }
   if (humidity !== undefined) {
-    if (humidity > 70)      messages.push({ subject: '습도가', highlight: '높아요!', body: '창문을 열고 환기\n시켜주세요!!' });
-    else if (humidity < 30) messages.push({ subject: '습도가', highlight: '낮아요!', body: '가습기를 틀어\n습도를 올려주세요!' });
+    if (humidity > TH.humidHigh)     messages.push({ subject: '습도가', highlight: '높아요!', body: '창문을 열고 환기\n시켜주세요!!', face: 'humidHigh' });
+    else if (humidity < TH.humidLow) messages.push({ subject: '습도가', highlight: '낮아요!', body: '가습기를 틀어\n습도를 올려주세요!', face: 'humidLow' });
   }
-  if (co2 !== undefined && co2 > 1000) messages.push({ subject: 'CO₂가', highlight: '높아요!', body: '창문을 열고 환기\n시켜주세요!!' });
-  if (dust !== undefined && dust > 80) messages.push({ subject: '미세먼지가', highlight: '나빠요!', body: '공기청정기를\n켜 주세요!' });
+  if (co2 !== undefined && co2 > TH.co2High) messages.push({ subject: 'CO₂가', highlight: '높아요!', body: '창문을 열고 환기\n시켜주세요!!', face: 'co2High' });
+  if (dust !== undefined && dust > TH.dustBad) messages.push({ subject: '미세먼지가', highlight: '나빠요!', body: '공기청정기를\n켜 주세요!', face: 'dustBad' });
 
   return messages;
 };
 
-const NORMAL_MESSAGE: HeroMessage = { subject: '환경이', highlight: '쾌적해요!', body: '지금처럼 바른 자세를\n유지해 주세요!' };
+const NORMAL_MESSAGE: HeroMessage = { subject: '환경이', highlight: '쾌적해요!', body: '지금처럼 바른 자세를\n유지해 주세요!', face: 'normal' };
 
 // ─── 오늘의 기록 (자세 습관 도넛차트) ──────────────────────
 // TODO: 자세 습관 통계 API가 아직 없어 임시(mock) 데이터입니다.
@@ -261,6 +323,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onLogout }) => {
   const warnings = measuredAt ? getHeroMessages(sensors) : [];
   const isNormal = warnings.length === 0;
   const hero = isNormal ? NORMAL_MESSAGE : warnings[0];
+  const face = hero.face;
   const statusColor = isNormal ? GOOD : WARN;
   const lastCheckedLabel = measuredAt
     ? measuredAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -328,7 +391,42 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onLogout }) => {
             setHeroY(e.nativeEvent.layout.y);
           }}
         >
-          <Image source={MascotImage} style={heroAt(X(9), 96.75, 158.25, 146.25)} resizeMode="cover" />
+          <View style={heroAt(X(9), 96.75, 158.25, 146.25)}>
+            <Image source={MascotImage} style={{ width: f(158.25), height: f(146.25) }} resizeMode="cover" />
+            {/* 얼굴 화면에 센서 상태별 표정을 덮어씀 */}
+            <View
+              style={{
+                position: 'absolute',
+                left: f(FACE_SCREEN.left * mascotPx),
+                top: f(FACE_SCREEN.top * mascotPx),
+                width: f(FACE_SCREEN.width * mascotPx),
+                height: f(FACE_SCREEN.height * mascotPx),
+                borderRadius: f(FACE_SCREEN.radius * mascotPx),
+                backgroundColor: '#000',
+                overflow: 'hidden',
+              }}
+            >
+              {/* 표정을 모두 미리 올려두고 현재 표정만 보이게 함 — 바뀔 때 새로 로드하느라 잠깐 비는 것 방지 */}
+              {(Object.keys(FACE_IMAGES) as FaceKey[]).map(key => {
+                const r = faceRect(key);
+                return (
+                  <Image
+                    key={key}
+                    source={FACE_IMAGES[key]}
+                    style={{
+                      position: 'absolute',
+                      left: f(r.left),
+                      top: f(r.top),
+                      width: f(r.size),
+                      height: f(r.size),
+                      opacity: key === face ? 1 : 0,
+                    }}
+                    resizeMode="cover"
+                  />
+                );
+              })}
+            </View>
+          </View>
           <Image source={SpeechBubbleImage} style={heroAt(XR(116.25), 65.25, 189.75, 130.5)} resizeMode="cover" />
 
           {/* 햄버거는 인사말 첫 줄과 같은 행에 두어 폰트 렌더링 차이와 무관하게 세로 중앙 정렬 */}
